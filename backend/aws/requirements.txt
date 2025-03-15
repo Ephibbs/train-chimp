@@ -1,0 +1,11 @@
+torch>=2.0.0
+transformers>=4.36.0
+peft>=0.7.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0
+datasets>=2.14.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0
+requests>=2.31.0
+boto3>=1.28.0
+cloudflare>=2.13.0 

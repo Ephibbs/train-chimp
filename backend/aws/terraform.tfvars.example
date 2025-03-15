@@ -1,0 +1,17 @@
+aws_region = "us-west-2"
+instance_type = "g4dn.xlarge"  # NVIDIA T4 GPU for fine-tuning
+ami_id = "ami-0c55b159cbfafe1f0"  # Update with your preferred AMI
+key_name = "your-ssh-key-name"
+model_type = "mistralai/Mistral-7B-v0.1"
+cloudflare_api_token = "your-cloudflare-api-token"
+cloudflare_account_id = "your-cloudflare-account-id"
+queue_name = "my-app-queue"
+database_name = "trainchimp-db"
+bucket_name = "my-app-bucket"
+
+# New inference variables
+inference_instance_type = "g5.xlarge"  # A100 GPU for faster inference
+inference_ami_id = "ami-0c55b159cbfafe1f0"  # Update with your preferred AMI
+inference_model_type = "mistralai/Mistral-7B-v0.1"
+max_loras = 4
+max_lora_rank = 32 
