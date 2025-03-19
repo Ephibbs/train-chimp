@@ -3,6 +3,9 @@ use worker::*;
 use uuid::Uuid;
 use chrono::Utc;
 
+// Import the job consumer module
+mod job_consumer;
+
 // Request data structure
 #[derive(Deserialize)]
 struct FineTuneRequest {
@@ -14,7 +17,7 @@ struct FineTuneRequest {
     training_params: TrainingParams,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)] // Added Serialize for queue message
 struct TrainingParams {
     epochs: u32,
     batch_size: u32,
@@ -60,19 +63,19 @@ async fn handle_fine_tune_request(req: &mut Request, env: &Env) -> Result<Respon
     };
 
     // Get database binding
-    let db = match env.d1("trainchimp-db") {
+    let db = match env.d1("DB") {
         Ok(db) => db,
         Err(_) => return Response::error("Database connection error", 500),
     };
 
     // Get R2 binding
-    let bucket = match env.r2("my-app-bucket") {
+    let bucket = match env.r2("STORAGE") {
         Ok(bucket) => bucket,
         Err(_) => return Response::error("Storage access error", 500),
     };
 
     // Get queue binding
-    let queue = match env.queue("my-app-queue") {
+    let queue = match env.queue("JOBS_QUEUE") {
         Ok(queue) => queue,
         Err(_) => return Response::error("Queue access error", 500),
     };
@@ -170,14 +173,7 @@ async fn verify_dataset(bucket: &R2Bucket, dataset_id: &str) -> bool {
     let dataset_path = format!("datasets/{}/metadata.json", dataset_id);
     
     match bucket.get(&dataset_path).await {
-        Ok(Some(object)) => {
-            // Verify that the dataset exists
-            // For more comprehensive validation, you could:
-            // 1. Check file size
-            // 2. Verify data format
-            // 3. Count examples
-            true
-        },
+        Ok(Some(_)) => true,
         _ => false,
     }
 }

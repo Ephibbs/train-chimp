@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileUpload, Database, Plus } from "lucide-react";
+import { FileUpIcon, Database, Plus } from "lucide-react";
 
 type Dataset = {
   id: string;
@@ -146,7 +146,7 @@ export default function DatasetsPage() {
                   </label>
                   <div className="mt-1 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md px-6 pt-5 pb-6 flex justify-center">
                     <div className="space-y-1 text-center">
-                      <FileUpload className="mx-auto h-12 w-12 text-gray-400" />
+                      <FileUpIcon className="mx-auto h-12 w-12 text-gray-400" />
                       <div className="flex text-sm text-gray-600 dark:text-gray-400">
                         <label
                           htmlFor="file-upload"

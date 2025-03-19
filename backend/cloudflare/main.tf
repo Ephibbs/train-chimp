@@ -2,7 +2,7 @@ terraform {
   required_providers {
     cloudflare = {
       source  = "cloudflare/cloudflare"
-      version = "~> 4.0"
+      version = "~> 5"
     }
   }
 }
@@ -23,12 +23,17 @@ variable "cloudflare_account_id" {
   description = "Your Cloudflare Account ID"
 }
 
+variable "cloudflare_zone_id" {
+  type        = string
+  description = "Your Cloudflare Zone ID"
+}
+
 // Resources
 
 // R2 Bucket
-resource "cloudflare_r2_bucket" "app_bucket" {
-  account_id = "your_cloudflare_account_id"
-  name       = "my-app-bucket"
+resource "cloudflare_r2_bucket" "trainchimp_bucket" {
+  account_id = var.cloudflare_account_id
+  name       = "trainchimp-storage"
   location   = "WNAM" # WEUR = Western Europe, ENAM = Eastern North America, etc.
 }
 
@@ -44,15 +49,6 @@ resource "cloudflare_d1_database_query" "schema_setup" {
   database_id  = cloudflare_d1_database.trainchimp_db.id
 
   sql = <<-EOT
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      name TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
     CREATE TABLE IF NOT EXISTS models (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -102,46 +98,67 @@ resource "cloudflare_d1_database_query" "schema_setup" {
 }
 
 // Queue
-resource "cloudflare_queue" "app_queue" {
-  account_id  = "your_cloudflare_account_id"
-  name        = "my-app-queue"
+resource "cloudflare_queue" "trainchimp_queue" {
+  account_id  = var.cloudflare_account_id
+  name        = "trainchimp-jobs-queue"
 }
 
 // Worker with proper bindings
-resource "cloudflare_worker_script" "rust_worker" {
+resource "cloudflare_workers_script" "rust_worker" {
   account_id = var.cloudflare_account_id
   name       = "trainchimp-worker"
   content    = filebase64("pkg/trainchimp_worker_bg.wasm")
   module     = true
   
-  // Add bindings for D1, R2, and Queue
-  binding {
-    name = "trainchimp-db"
-    type = "d1_database"
-    database_id = cloudflare_d1_database.trainchimp_db.id
+  bindings = [
+    {
+      name = "DB"
+      type = "d1_database"
+      database_id = cloudflare_d1_database.trainchimp_db.id
+    },
+    {
+      name = "STORAGE"
+      type = "r2_bucket"
+      bucket_name = cloudflare_r2_bucket.trainchimp_bucket.name
+    },
+    {
+      name = "JOBS_QUEUE"
+      type = "queue"
+      queue_name = cloudflare_queue.trainchimp_queue.name
+    }
+  ]
+  // R2 Bucket binding
+  r2_bucket_binding {
+    name       = "STORAGE"
+    bucket_name = cloudflare_r2_bucket.trainchimp_bucket.name
   }
-  
-  binding {
-    name = "my-app-bucket"
-    type = "r2_bucket"
-    bucket_name = cloudflare_r2_bucket.app_bucket.name
-  }
-  
-  binding {
-    name = "my-app-queue"
-    type = "queue"
-    queue_name = cloudflare_queue.app_queue.name
-  }
+
+  // Queue binding
+  queue_binding = [{
+    name       = "JOBS_QUEUE"
+    queue_name = cloudflare_queue.trainchimp_queue.name
+  }]
 }
 
 resource "cloudflare_worker_route" "rust_worker_route" {
-  zone_id     = "your_cloudflare_zone_id"
-  pattern     = "api.yourdomain.com/*"
+  zone_id     = var.cloudflare_zone_id
+  pattern     = "api.trainchimp.com/*"
   script_name = cloudflare_worker_script.rust_worker.name
 }
 
+// Queue consumer configuration
+resource "cloudflare_queue_consumer" "trainchimp_consumer" {
+  account_id = var.cloudflare_account_id
+  queue_name = cloudflare_queue.trainchimp_queue.name
+  script_name = cloudflare_workers_script.rust_worker.name
+  settings = {
+    max_batch_size = 10
+    max_batch_timeout = 30
+  }
+}
+
 output "r2_bucket_url" {
-  value = cloudflare_r2_bucket.app_bucket.id
+  value = cloudflare_r2_bucket.trainchimp_bucket.id
 }
 
 output "database_id" {
@@ -153,7 +170,7 @@ output "database_name" {
 }
 
 output "queue_id" {
-  value = cloudflare_queue.app_queue.id
+  value = cloudflare_queue.trainchimp_queue.id
 }
 
 output "worker_script_name" {

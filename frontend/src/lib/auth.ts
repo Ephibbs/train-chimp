@@ -1,77 +1,35 @@
-import { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import GitHubProvider from "next-auth/providers/github";
-import GoogleProvider from "next-auth/providers/google";
-
-// This would typically connect to your database in a real app
-const users = new Map();
-
-export const authOptions: NextAuthOptions = {
-  providers: [
-    GitHubProvider({
-      clientId: process.env.GITHUB_ID || "",
-      clientSecret: process.env.GITHUB_SECRET || "",
-    }),
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-    }),
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
-
-        // For demo purposes - in a real app, check against your database
-        // This is using an in-memory store, which won't persist across server restarts
-        const user = users.get(credentials.email);
-        
-        if (user && user.password === credentials.password) {
-          return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-          };
-        }
-
-        // For demo, let the demo user work
-        if (credentials.email === "user@example.com" && credentials.password === "password") {
-          return {
-            id: "1",
-            name: "Demo User",
-            email: "user@example.com",
-          };
-        }
-        
-        return null;
-      }
-    }),
-  ],
-  pages: {
-    signIn: "/auth/signin",
-    signOut: "/auth/signout",
-    error: "/auth/error",
-  },
+import NextAuth, { type DefaultSession } from "next-auth"
+ 
+declare module "next-auth" {
+  /**
+   * Returned by `auth`, `useSession`, `getSession` and received as a prop on the `SessionProvider` React Context
+   */
+  interface Session {
+    user: {
+      /** The user's postal address. */
+      address: string
+      /**
+       * By default, TypeScript merges new interface properties and overwrites existing ones.
+       * In this case, the default session user properties will be overwritten,
+       * with the new ones defined above. To keep the default session user properties,
+       * you need to add them back into the newly declared interface.
+       */
+    } & DefaultSession["user"]
+  }
+}
+ 
+export const { auth, handlers } = NextAuth({
   callbacks: {
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.sub as string;
+    session({ session, token, user }) {
+      // `session.user.address` is now a valid property, and will be type-checked
+      // in places like `useSession().data.user` or `auth().user`
+      return {
+        ...session,
+        user: {
+          ...session.user,
+          address: user.address,
+        },
       }
-      return session;
-    },
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-      }
-      return token;
     },
   },
-  session: {
-    strategy: "jwt",
-  },
-}; 
+})

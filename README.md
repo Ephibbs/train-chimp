@@ -19,7 +19,7 @@ TrainChimp provides a unified, user-friendly interface to:
 | **Authentication**    | NextAuth.js                              |
 | **API Backend**       | Rust (Actix, Axum, Rocket) via Cloudflare Workers |
 | **Database**          | Cloudflare D1                            |
-| **Object Storage**    | Cloudflare R2                            |
+| **Object Storage**    | Cloudflare R2, notifications via Cloudflare Queues |
 | **Worker Queue**      | Cloudflare Queues                        |
 | **Fine-tuning Infra** | Hugging Face Transformers, GPUs (AWS)    |
 | **Inference Infra**   | vLLM, GPUs (AWS)                         |

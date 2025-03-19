@@ -1,28 +1,35 @@
-import Link from "next/link";
-import { getProviders } from "next-auth/react";
-import { SignInForm } from "@/components/auth/signin-form";
+"use client";
 
-export default async function SignIn() {
-  const providers = await getProviders();
+import { signIn } from "next-auth/react";
+import { useState } from "react";
+
+export default function SignIn() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    await signIn("google", { callbackUrl: "/dashboard" });
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="flex min-h-screen flex-col items-center justify-center">
+      <div className="w-full max-w-md space-y-8 p-10 bg-white rounded-xl shadow-md">
         <div className="text-center">
-          <Link href="/" className="inline-flex items-center">
-            <span className="text-4xl">🐵</span>
-            <span className="ml-2 text-2xl font-bold">TrainChimp</span>
-          </Link>
-          <h2 className="mt-6 text-3xl font-extrabold">Sign in to your account</h2>
-          <p className="mt-2 text-sm">
-            Or{" "}
-            <Link href="/auth/signup" className="font-medium text-blue-600 hover:text-blue-500">
-              create an account if you don't have one
-            </Link>
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">Sign in to TrainChimp</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Access your AI fine-tuning workspace
           </p>
         </div>
         
-        <SignInForm providers={providers} />
+        <div className="mt-8">
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={isLoading}
+            className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            {isLoading ? "Loading..." : "Sign in with Google"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -15,6 +15,75 @@ type FineTune = {
 export default function FinetunesPage() {
   const [finetunes, setFinetunes] = useState<FineTune[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [datasetOption, setDatasetOption] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFileUpload = async (file: File, datasetName: string) => {
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      
+      // Get presigned URL
+      const presignedUrlResponse = await fetch("/api/datasets/presigned-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ filename: `${datasetName}.jsonl` }),
+      });
+
+      if (!presignedUrlResponse.ok) {
+        throw new Error("Failed to get upload URL");
+      }
+
+      const { presignedUrl } = await presignedUrlResponse.json();
+
+      // Upload file using presigned URL with progress tracking
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(progress);
+        }
+      };
+
+      await new Promise((resolve, reject) => {
+        xhr.open("PUT", presignedUrl);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error(`Upload failed with status: ${xhr.status}`));
+          }
+        };
+        
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(file);
+      });
+
+      setSelectedFile(null);
+      setUploadProgress(0);
+      // You might want to refresh the finetunes list here
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      setUploadError(error instanceof Error ? error.message : "Failed to upload file");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    
+    
+  };
   
   return (
     <div>
@@ -108,7 +177,7 @@ export default function FinetunesPage() {
       
       {/* Add a modal here for creating new fine-tunes */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
@@ -153,11 +222,89 @@ export default function FinetunesPage() {
                   <select
                     id="dataset"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                    value={datasetOption}
+                    onChange={(e) => setDatasetOption(e.target.value)}
                   >
                     <option value="">Select a dataset</option>
                     <option value="upload">Upload new dataset</option>
                   </select>
                 </div>
+                
+                {datasetOption === "upload" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="dataset-name" className="block text-sm font-medium mb-1">
+                        Dataset Name
+                      </label>
+                      <input
+                        type="text"
+                        id="dataset-name"
+                        name="dataset-name"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                        placeholder="My Dataset"
+                        onChange={(e) => {
+                          if (selectedFile && e.target.value) {
+                            handleFileUpload(selectedFile, e.target.value);
+                          }
+                        }}
+                      />
+                    </div>
+                    
+                    <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
+                      <div className="space-y-2">
+                        <div className="text-gray-500 dark:text-gray-400">
+                          <p>Drag and drop your dataset file here</p>
+                          <p className="text-xs">Supported formats: JSON (.jsonl)</p>
+                        </div>
+                        <div className="flex justify-center">
+                          <label className="cursor-pointer px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                            Browse Files
+                            <input
+                              type="file"
+                              name="file"
+                              accept=".jsonl"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setSelectedFile(file);
+                                  const datasetName = (document.getElementById("dataset-name") as HTMLInputElement)?.value;
+                                  if (datasetName) {
+                                    handleFileUpload(file, datasetName);
+                                  }
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {isUploading && (
+                          <div className="space-y-2">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                              <div 
+                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                                style={{ width: `${uploadProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                              Uploading... {uploadProgress}%
+                            </p>
+                          </div>
+                        )}
+                        {uploadError && (
+                          <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+                            {uploadError}
+                          </p>
+                        )}
+                        {selectedFile && !isUploading && (
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+                            Selected file: {selectedFile.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <div>
                   <label htmlFor="epochs" className="block text-sm font-medium mb-1">
                     Epochs

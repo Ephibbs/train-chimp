@@ -1,6 +1,6 @@
 import { Sidebar } from "@/components/sidebar";
 import { UserNav } from "@/components/user-nav";
-import { auth } from "@/lib/auth";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({

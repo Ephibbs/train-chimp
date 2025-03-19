@@ -14,20 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TrainChimp - AI Fine-Tuning & Inference Cloud",
-  description: "The open-source serverless AI fine-tuning & inference cloud",
+  title: "TrainChimp - AI Fine-Tuning Platform",
+  description: "An open-source platform for fine-tuning and deploying AI models",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable}`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <NextAuthProvider>
           {children}
         </NextAuthProvider>

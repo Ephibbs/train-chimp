@@ -6,7 +6,7 @@ import {
   Home, 
   MessageCircle, 
   Database, 
-  Flask, 
+  FlaskConical, 
   Settings, 
   HelpCircle 
 } from "lucide-react";
@@ -19,7 +19,7 @@ export function Sidebar() {
     { name: "Dashboard", href: "/dashboard", icon: Home },
     { name: "Chat", href: "/dashboard/chat", icon: MessageCircle },
     { name: "Datasets", href: "/dashboard/datasets", icon: Database },
-    { name: "Fine-tunes", href: "/dashboard/finetunes", icon: Flask },
+    { name: "Fine-tunes", href: "/dashboard/finetunes", icon: FlaskConical },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
     { name: "Help", href: "/dashboard/help", icon: HelpCircle },
   ];
