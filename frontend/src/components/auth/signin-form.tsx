@@ -1,32 +1,77 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-export function SignInForm({ providers }: { providers: any }) {
+export function SignInForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
     
     try {
-      await signIn("credentials", {
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
-        callbackUrl: "/dashboard",
       });
-    } catch (error) {
+      
+      if (error) {
+        throw error;
+      }
+      
+      router.push('/dashboard');
+      router.refresh();
+    } catch (error: any) {
       console.error("Authentication error:", error);
+      setError(error.message || "Failed to sign in");
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+      router.push('/dashboard');
+      router.refresh();
+      if (error) {
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("Authentication error:", error);
+      setError(error.message || "Failed to sign in with Google");
       setIsLoading(false);
     }
   };
 
   return (
     <div className="mt-8 space-y-6">
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded relative">
+          {error}
+        </div>
+      )}
+      
       <form className="space-y-6" onSubmit={handleSubmit}>
         <div>
           <label htmlFor="email" className="block text-sm font-medium">
@@ -107,21 +152,14 @@ export function SignInForm({ providers }: { providers: any }) {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          {providers && 
-            Object.values(providers).map((provider: any) => {
-              if (provider.id === "credentials") return null;
-              
-              return (
-                <button
-                  key={provider.id}
-                  onClick={() => signIn(provider.id, { callbackUrl: "/dashboard" })}
-                  className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  <span>{provider.name}</span>
-                </button>
-              );
-            })}
+        <div className="mt-6">
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={isLoading}
+            className="w-full flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            <span>Google</span>
+          </button>
         </div>
       </div>
     </div>

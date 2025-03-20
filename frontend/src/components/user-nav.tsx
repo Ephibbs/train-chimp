@@ -1,12 +1,27 @@
 "use client";
 
-import { signOut } from "next-auth/react";
 import { useState } from "react";
-import { User } from "next-auth";
+import { useRouter } from "next/navigation";
 import { LogOut, User as UserIcon, Settings } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+
+type User = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+};
 
 export function UserNav({ user }: { user: User }) {
   const [isOpen, setIsOpen] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/auth/signout');
+    router.refresh();
+  };
 
   return (
     <div className="relative">
@@ -46,7 +61,7 @@ export function UserNav({ user }: { user: User }) {
             <button
               className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
               role="menuitem"
-              onClick={() => signOut({ callbackUrl: "/" })}
+              onClick={handleSignOut}
             >
               <LogOut className="mr-2 h-4 w-4" />
               <span>Sign out</span>

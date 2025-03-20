@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export function SignUpForm() {
   const [name, setName] = useState("");
@@ -12,6 +12,7 @@ export function SignUpForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,42 +32,60 @@ export function SignUpForm() {
     setIsLoading(true);
     
     try {
-      // Register user
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-        }),
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create account");
-      }
-      
-      // Sign in after successful registration
-      const result = await signIn('credentials', { 
-        redirect: false,
-        email, 
+      // Register user with Supabase
+      const { data, error } = await supabase.auth.signUp({
+        email,
         password,
+        options: {
+          data: {
+            name,
+          },
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
       });
       
-      if (result?.error) {
-        throw new Error(result.error);
+      if (error) {
+        throw error;
       }
       
-      // Redirect to dashboard
-      router.push('/dashboard');
-    } catch (error) {
+      // Check if email confirmation is required
+      if (data?.user?.identities?.length === 0) {
+        router.push('/auth/verify-email');
+      } else {
+        router.push('/dashboard');
+      }
+      
+      router.refresh();
+    } catch (error: any) {
       console.error("Signup error:", error);
-      setError(error instanceof Error ? error.message : "An error occurred during sign up");
+      setError(error.message || "An error occurred during sign up");
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    setIsLoading(true);
+    setError("");
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+      
+      if (error) {
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("Authentication error:", error);
+      setError(error.message || "Failed to sign up with Google");
       setIsLoading(false);
     }
   };
@@ -175,15 +194,10 @@ export function SignUpForm() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="mt-6">
           <button
-            onClick={() => signIn('github', { callbackUrl: '/dashboard' })}
-            className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
-          >
-            <span>GitHub</span>
-          </button>
-          <button
-            onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+            onClick={handleGoogleSignUp}
+            disabled={isLoading}
             className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             <span>Google</span>

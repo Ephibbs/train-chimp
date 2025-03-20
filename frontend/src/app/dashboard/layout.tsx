@@ -1,6 +1,6 @@
 import { Sidebar } from "@/components/sidebar";
 import { UserNav } from "@/components/user-nav";
-import { auth } from "@/auth";
+import { getUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -8,11 +8,19 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const user = await getUser();
   
-  if (!session?.user) {
+  if (!user) {
     redirect("/auth/signin");
   }
+
+  // Format user data for the UserNav component
+  const formattedUser = {
+    id: user.id,
+    name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+    email: user.email,
+    image: user.user_metadata?.avatar_url,
+  };
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
@@ -21,7 +29,7 @@ export default async function DashboardLayout({
         <header className="bg-white dark:bg-gray-800 shadow">
           <div className="px-4 sm:px-6 py-4 flex items-center justify-between">
             <h1 className="text-xl font-semibold">Dashboard</h1>
-            <UserNav user={session.user} />
+            <UserNav user={formattedUser} />
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">

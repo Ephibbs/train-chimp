@@ -5,25 +5,36 @@ TrainChimp is a comprehensive, open-source platform designed to streamline your 
 ## 📌 Overview of TrainChimp
 
 TrainChimp provides a unified, user-friendly interface to:
-- Effortlessly fine-tune AI models using hardware optimization (flash attention, etc.) techniques
+- Effortlessly no-code supervised fine-tune AI models using hardware optimization (flash attention, etc.) techniques
 - Efficiently utilize LoRA (Low-Rank Adaptation) techniques for resource-effective fine-tuning
-- Deploy highly scalable inference endpoints using vLLM
-- Manage data pipelines and analytics with Polars, DuckDB, and Weights & Biases (wandb)
-- Leverage edge-based infrastructure as much as possible for optimal performance
+- Manage data pipelines and analytics with Weights & Biases (wandb)
+- Deploy to Together.ai for inference
 
-## 🌐 Core Tech Stack
+## Core Tech Stack
+- Supabase for authentication, database, object storage, and queues
+- Next.js for the frontend
+- Weights & Biases for analytics
+- AWS instances for fine-tuning
+- Together.ai for inference
+
+Future plans:
+- Deploy highly scalable inference endpoints using vLLM
+- Switch to an edge-based infrastructure as much as possible for optimal performance
+
+
+## 🌐 Future Core Tech Stack Options
 
 | Component             | Technology                               |
 |-----------------------|------------------------------------------|
 | **Frontend**          | Next.js                                  |
 | **Authentication**    | NextAuth.js                              |
 | **API Backend**       | Rust (Actix, Axum, Rocket) via Cloudflare Workers |
-| **Database**          | Cloudflare D1                            |
+| **Database**          | PlanetScale                            |
 | **Object Storage**    | Cloudflare R2, notifications via Cloudflare Queues |
 | **Worker Queue**      | Cloudflare Queues                        |
 | **Fine-tuning Infra** | Hugging Face Transformers, GPUs (AWS)    |
 | **Inference Infra**   | vLLM, GPUs (AWS)                         |
-| **Analytics**         | Polars, DuckDB, Weights & Biases (wandb) |
+| **Analytics**         | Weights & Biases (wandb) |
 
 ## 🚀 TrainChimp Features
 

@@ -1,16 +1,9 @@
 "use client";
 
-import { signIn } from "next-auth/react";
-import { useState } from "react";
+import Link from "next/link";
+import { SignInForm } from "@/components/auth/signin-form";
 
 export default function SignIn() {
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleGoogleSignIn = async () => {
-    setIsLoading(true);
-    await signIn("google", { callbackUrl: "/dashboard" });
-  };
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center">
       <div className="w-full max-w-md space-y-8 p-10 bg-white rounded-xl shadow-md">
@@ -21,14 +14,15 @@ export default function SignIn() {
           </p>
         </div>
         
-        <div className="mt-8">
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={isLoading}
-            className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            {isLoading ? "Loading..." : "Sign in with Google"}
-          </button>
+        <SignInForm />
+        
+        <div className="text-center mt-4">
+          <p className="text-sm text-gray-600">
+            Don&apos;t have an account?{" "}
+            <Link href="/auth/signup" className="font-medium text-blue-600 hover:text-blue-500">
+              Sign up
+            </Link>
+          </p>
         </div>
       </div>
     </div>

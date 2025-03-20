@@ -1,35 +1,24 @@
-import NextAuth, { type DefaultSession } from "next-auth"
- 
-declare module "next-auth" {
-  /**
-   * Returned by `auth`, `useSession`, `getSession` and received as a prop on the `SessionProvider` React Context
-   */
-  interface Session {
+import { getUser } from './supabase/server'
+
+export async function auth() {
+  const user = await getUser()
+  
+  if (!user) {
+    return null
+  }
+  
+  return {
     user: {
-      /** The user's postal address. */
-      address: string
-      /**
-       * By default, TypeScript merges new interface properties and overwrites existing ones.
-       * In this case, the default session user properties will be overwritten,
-       * with the new ones defined above. To keep the default session user properties,
-       * you need to add them back into the newly declared interface.
-       */
-    } & DefaultSession["user"]
+      id: user.id,
+      name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+      email: user.email,
+      image: user.user_metadata?.avatar_url,
+    }
   }
 }
- 
-export const { auth, handlers } = NextAuth({
-  callbacks: {
-    session({ session, token, user }) {
-      // `session.user.address` is now a valid property, and will be type-checked
-      // in places like `useSession().data.user` or `auth().user`
-      return {
-        ...session,
-        user: {
-          ...session.user,
-          address: user.address,
-        },
-      }
-    },
-  },
-})
+
+// Export a dummy handlers object for compatibility with route.ts
+export const handlers = {
+  GET: async () => new Response('Auth handler', { status: 200 }),
+  POST: async () => new Response('Auth handler', { status: 200 })
+}
