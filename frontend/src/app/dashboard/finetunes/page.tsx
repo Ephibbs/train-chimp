@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 type FineTune = {
   id: string;
@@ -20,61 +21,149 @@ export default function FinetunesPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [datasets, setDatasets] = useState<Array<{id: string, name: string}>>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const supabase = createClient();
+  
+  // Fetch finetunes and datasets when component mounts
+  useEffect(() => {
+    fetchFinetunes();
+    fetchDatasets();
+  }, []);
+  
+  const fetchFinetunes = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.error("User not authenticated");
+        return;
+      }
+      
+      // Fetch finetunes for the current user
+      const { data, error } = await supabase
+        .from('models')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+        
+      if (error) {
+        throw error;
+      }
+      
+      // Transform the data to match the FineTune type
+      const formattedData = data?.map(item => ({
+        id: item.id,
+        name: item.name,
+        baseModel: item.base_model,
+        status: item.status,
+        createdAt: new Date(item.created_at),
+        updatedAt: new Date(item.updated_at || item.created_at)
+      })) || [];
+      
+      setFinetunes(formattedData);
+    } catch (error) {
+      console.error("Error fetching finetunes:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const fetchDatasets = async () => {
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.error("User not authenticated");
+        return;
+      }
+      
+      // Fetch datasets for the current user
+      const { data, error } = await supabase
+        .from('datasets')
+        .select('id, name')
+        .eq('user_id', user.id);
+        
+      if (error) {
+        throw error;
+      }
+      
+      setDatasets(data || []);
+    } catch (error) {
+      console.error("Error fetching datasets:", error);
+    }
+  };
 
+  // Fix the TypeScript errors for file upload
   const handleFileUpload = async (file: File, datasetName: string) => {
     try {
       setIsUploading(true);
       setUploadError(null);
-      
-      // Get presigned URL
-      const presignedUrlResponse = await fetch("/api/datasets/presigned-url", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ filename: `${datasetName}.jsonl` }),
-      });
-
-      if (!presignedUrlResponse.ok) {
-        throw new Error("Failed to get upload URL");
-      }
-
-      const { presignedUrl } = await presignedUrlResponse.json();
-
-      // Upload file using presigned URL with progress tracking
-      const xhr = new XMLHttpRequest();
-      
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress(progress);
-        }
-      };
-
-      await new Promise((resolve, reject) => {
-        xhr.open("PUT", presignedUrl);
-        xhr.setRequestHeader("Content-Type", "application/json");
-        
-        xhr.onload = () => {
-          if (xhr.status === 200) {
-            resolve(xhr.response);
-          } else {
-            reject(new Error(`Upload failed with status: ${xhr.status}`));
-          }
-        };
-        
-        xhr.onerror = () => reject(new Error("Upload failed"));
-        xhr.send(file);
-      });
-
-      setSelectedFile(null);
       setUploadProgress(0);
-      // You might want to refresh the finetunes list here
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+      
+      // Create a unique file path
+      const filePath = `datasets/${user.id}/${Date.now()}_${file.name}`;
+      
+      // Upload file to Supabase Storage with progress tracking
+      // Use FileOptions that are supported by Supabase
+      const { error: uploadError } = await supabase.storage
+        .from('datasets')
+        .upload(filePath, file, {
+          contentType: 'application/jsonl',
+          cacheControl: '3600',
+          upsert: false,
+        });
+        
+      if (uploadError) {
+        throw uploadError;
+      }
+      
+      // Create dataset record in the database
+      const { data, error } = await supabase
+        .from('datasets')
+        .insert({
+          user_id: user.id,
+          name: datasetName,
+          file_path: filePath,
+          file_size: file.size,
+          file_type: file.type,
+          status: 'ready'
+        })
+        .select('id, name');
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Add the new dataset to the datasets list
+      setDatasets(prev => [...prev, ...(data || [])]);
+      
+      // Select the newly created dataset
+      if (data && data.length > 0) {
+        setDatasetOption(data[0].id);
+      }
+      
+      // Reset file selection
+      setSelectedFile(null);
+      
     } catch (error) {
-      console.error("Error uploading file:", error);
-      setUploadError(error instanceof Error ? error.message : "Failed to upload file");
+      console.error("Error uploading dataset:", error);
+      setUploadError("Failed to upload dataset. Please try again.");
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -82,7 +171,48 @@ export default function FinetunesPage() {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     
-    
+    try {
+      setIsLoading(true);
+      
+      // Extract form values
+      const name = formData.get('name') as string;
+      const baseModel = formData.get('base-model') as string;
+      const datasetId = formData.get('dataset') as string;
+      const epochs = parseInt(formData.get('epochs') as string, 10);
+      
+      if (!name || !baseModel || !datasetId || isNaN(epochs)) {
+        throw new Error("Please fill out all required fields");
+      }
+      
+      // Call server-side API endpoint
+      const response = await fetch('/api/finetunes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          baseModel,
+          datasetId,
+          epochs
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create fine-tune");
+      }
+      
+      // Close modal and refresh finetunes list
+      setIsModalOpen(false);
+      fetchFinetunes();
+      
+    } catch (error) {
+      console.error("Error creating fine-tune:", error);
+      alert("Failed to create fine-tune. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   return (
@@ -189,7 +319,7 @@ export default function FinetunesPage() {
                   ✕
                 </button>
               </div>
-              <form className="space-y-4">
+              <form className="space-y-4" onSubmit={onSubmit}>
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium mb-1">
                     Name
@@ -197,8 +327,10 @@ export default function FinetunesPage() {
                   <input
                     type="text"
                     id="name"
+                    name="name"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
                     placeholder="My Custom Model"
+                    required
                   />
                 </div>
                 <div>
@@ -207,12 +339,12 @@ export default function FinetunesPage() {
                   </label>
                   <select
                     id="base-model"
+                    name="base-model"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                    required
                   >
-                    <option value="mistralai/Mistral-7B-v0.1">Mistral 7B</option>
-                    <option value="meta-llama/Llama-2-7b">Meta Llama 2 7B</option>
-                    <option value="microsoft/phi-2">Microsoft Phi-2</option>
-                    <option value="meta-llama/Llama-2-13b">Meta Llama 2 13B</option>
+                    <option value="">Select a base model</option>
+                    <option value="meta-llama/Llama-3.2-1B-Instruct">Llama 3.2 1B Instruct</option>
                   </select>
                 </div>
                 <div>
@@ -221,11 +353,18 @@ export default function FinetunesPage() {
                   </label>
                   <select
                     id="dataset"
+                    name="dataset"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
                     value={datasetOption}
                     onChange={(e) => setDatasetOption(e.target.value)}
+                    required
                   >
                     <option value="">Select a dataset</option>
+                    {datasets.map(dataset => (
+                      <option key={dataset.id} value={dataset.id}>
+                        {dataset.name}
+                      </option>
+                    ))}
                     <option value="upload">Upload new dataset</option>
                   </select>
                 </div>
@@ -312,6 +451,7 @@ export default function FinetunesPage() {
                   <input
                     type="number"
                     id="epochs"
+                    name="epochs"
                     min="1"
                     max="10"
                     defaultValue="3"
@@ -323,14 +463,16 @@ export default function FinetunesPage() {
                     type="button"
                     onClick={() => setIsModalOpen(false)}
                     className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                    disabled={isLoading}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                    className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isLoading || isUploading}
                   >
-                    Create
+                    {isLoading ? "Creating..." : "Create"}
                   </button>
                 </div>
               </form>

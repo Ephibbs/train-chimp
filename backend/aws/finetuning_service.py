@@ -10,7 +10,6 @@ import os
 import json
 import time
 import logging
-import argparse
 import requests
 import boto3
 from typing import Dict, Any, Optional
@@ -32,6 +31,7 @@ from peft import (
     prepare_model_for_kbit_training
 )
 from datasets import load_dataset
+from supabase import create_client, Client
 
 # Configure logging
 logging.basicConfig(
@@ -189,22 +189,171 @@ class CloudflareClient:
             return False
 
 
+class SupabaseClient:
+    """Client for interacting with Supabase services (Database, Storage)"""
+    
+    def __init__(self, url: str, api_key: str):
+        """
+        Initialize the Supabase client
+        
+        Args:
+            url: Supabase project URL
+            api_key: Supabase API key
+        """
+        self.client: Client = create_client(url, api_key)
+    
+    def get_next_job(self, queue_table: str) -> Optional[Dict[str, Any]]:
+        """Get the next job from the Supabase queue table"""
+        try:
+            # Get the oldest job with status 'pending'
+            response = self.client.table(queue_table) \
+                .select("*") \
+                .eq("status", "pending") \
+                .order("created_at") \
+                .limit(1) \
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                job = response.data[0]
+                # Return job data
+                return {
+                    "body": job,
+                    "queue_message_id": job.get("id")
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting next job from Supabase: {e}")
+            return None
+    
+    def delete_job(self, queue_table: str, message_id: str) -> bool:
+        """Mark a job as processed in the queue table"""
+        try:
+            # Instead of deleting, we can update status to 'processed'
+            response = self.client.table(queue_table) \
+                .update({"status": "processed"}) \
+                .eq("id", message_id) \
+                .execute()
+            
+            return True if response.data else False
+        except Exception as e:
+            logger.error(f"Error updating job status in Supabase: {e}")
+            return False
+    
+    def download_dataset(self, bucket_name: str, dataset_id: str, local_path: str) -> str:
+        """Download dataset from Supabase Storage"""
+        local_file_path = os.path.join(local_path, f"{dataset_id}.jsonl")
+        
+        try:
+            os.makedirs(local_path, exist_ok=True)
+            
+            # Download file from storage
+            response = self.client.storage \
+                .from_(bucket_name) \
+                .download(f"datasets/{dataset_id}/data.jsonl")
+            
+            # Write the downloaded content to a file
+            with open(local_file_path, 'wb') as f:
+                f.write(response)
+            
+            logger.info(f"Dataset downloaded to {local_file_path}")
+            return local_file_path
+        except Exception as e:
+            logger.error(f"Error downloading dataset from Supabase: {e}")
+            raise
+    
+    def upload_model(self, bucket_name: str, model_id: str, model_path: str) -> str:
+        """Upload fine-tuned model to Supabase Storage"""
+        # Zip the model files
+        import shutil
+        zip_path = f"/tmp/{model_id}.zip"
+        shutil.make_archive(zip_path.replace('.zip', ''), 'zip', model_path)
+        
+        try:
+            # Upload the zip file to Supabase Storage
+            with open(zip_path, 'rb') as f:
+                file_data = f.read()
+                
+            response = self.client.storage \
+                .from_(bucket_name) \
+                .upload(f"models/{model_id}/adapter.zip", file_data, {"content-type": "application/zip"})
+            
+            # Clean up
+            os.remove(zip_path)
+            
+            # Get public URL
+            file_url = self.client.storage \
+                .from_(bucket_name) \
+                .get_public_url(f"models/{model_id}/adapter.zip")
+            
+            return file_url
+        except Exception as e:
+            logger.error(f"Error uploading model to Supabase: {e}")
+            raise
+    
+    def update_job_status(self, jobs_table: str, job_id: str, status: str, 
+                        logs_url: Optional[str] = None, 
+                        started_at: Optional[str] = None,
+                        completed_at: Optional[str] = None) -> bool:
+        """Update job status in Supabase database"""
+        
+        try:
+            # Build update data
+            update_data = {"status": status}
+            if logs_url:
+                update_data["logs_url"] = logs_url
+            if started_at:
+                update_data["started_at"] = started_at
+            if completed_at:
+                update_data["completed_at"] = completed_at
+            
+            # Update the job
+            response = self.client.table(jobs_table) \
+                .update(update_data) \
+                .eq("id", job_id) \
+                .execute()
+            
+            return True if response.data else False
+        except Exception as e:
+            logger.error(f"Error updating job status in Supabase: {e}")
+            return False
+    
+    def update_model_status(self, models_table: str, model_id: str, status: str, 
+                           lora_adapter_url: Optional[str] = None) -> bool:
+        """Update model status in Supabase database"""
+        
+        try:
+            # Build update data
+            update_data = {
+                "status": status,
+                "updated_at": datetime.now().isoformat()
+            }
+            if lora_adapter_url:
+                update_data["lora_adapter_url"] = lora_adapter_url
+            
+            # Update the model
+            response = self.client.table(models_table) \
+                .update(update_data) \
+                .eq("id", model_id) \
+                .execute()
+            
+            return True if response.data else False
+        except Exception as e:
+            logger.error(f"Error updating model status in Supabase: {e}")
+            return False
+
+
 class FineTuningService:
-    """Service to manage fine-tuning jobs for a specific model type"""
+    """Service to manage fine-tuning jobs"""
     
     def __init__(self, 
-                 cloudflare_client: CloudflareClient,
-                 queue_name: str,
-                 database_name: str,
-                 bucket_name: str,
-                 base_model_type: str,
+                 cloudflare_client: Optional[CloudflareClient] = None,
+                 supabase_client: Optional[SupabaseClient] = None,
                  data_dir: str = "/tmp/trainchimp"):
-        
-        self.cf_client = cloudflare_client
-        self.queue_name = queue_name
-        self.database_name = database_name
-        self.bucket_name = bucket_name
-        self.base_model_type = base_model_type
+        if cloudflare_client and supabase_client:
+            raise ValueError("Only one client can be provided")
+        elif not cloudflare_client and not supabase_client:
+            raise ValueError("One client must be provided")
+        self.client = cloudflare_client or supabase_client
         self.data_dir = data_dir
         
         # Create directories
@@ -212,45 +361,54 @@ class FineTuningService:
         os.makedirs(os.path.join(self.data_dir, "datasets"), exist_ok=True)
         os.makedirs(os.path.join(self.data_dir, "models"), exist_ok=True)
         
-        # Pre-load the tokenizer for the base model
-        logger.info(f"Loading tokenizer for {base_model_type}")
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_type)
-        
-        # The model will be loaded when needed
-        self.model = None
+        # Models and tokenizers will be loaded as needed
+        self.models = {}
+        self.tokenizers = {}
     
-    def load_base_model(self):
-        """Load the base model into memory"""
-        logger.info(f"Loading base model: {self.base_model_type}")
+    def load_base_model(self, base_model_type):
+        """Load a base model into memory"""
+        logger.info(f"Loading base model: {base_model_type}")
         
         # Check for GPU
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
         
-        # Load in 4-bit to save memory
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.base_model_type,
+        # Load tokenizer if not already loaded
+        if base_model_type not in self.tokenizers:
+            logger.info(f"Loading tokenizer for {base_model_type}")
+            self.tokenizers[base_model_type] = AutoTokenizer.from_pretrained(base_model_type)
+        
+        # Load model in 4-bit to save memory
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model_type,
             torch_dtype=torch.float16,
             load_in_4bit=True,
             device_map="auto"
         )
         
         # Prepare the model for training
-        self.model = prepare_model_for_kbit_training(self.model)
+        model = prepare_model_for_kbit_training(model)
         
+        self.models[base_model_type] = model
         logger.info(f"Base model loaded successfully")
     
-    def reset_model(self):
-        """Reset the model by clearing it from memory"""
-        logger.info("Resetting model")
-        if self.model:
-            del self.model
+    def reset_model(self, base_model_type):
+        """Reset a specific model by clearing it from memory"""
+        logger.info(f"Resetting model: {base_model_type}")
+        if base_model_type in self.models:
+            del self.models[base_model_type]
             torch.cuda.empty_cache()
-            self.model = None
     
-    def process_dataset(self, dataset_path, instruction_template=None):
+    def process_dataset(self, dataset_path, base_model_type, instruction_template=None):
         """Process the dataset for training"""
         logger.info(f"Processing dataset: {dataset_path}")
+        
+        # Ensure tokenizer is loaded
+        if base_model_type not in self.tokenizers:
+            logger.info(f"Loading tokenizer for {base_model_type}")
+            self.tokenizers[base_model_type] = AutoTokenizer.from_pretrained(base_model_type)
+        
+        tokenizer = self.tokenizers[base_model_type]
         
         # Load dataset
         dataset = load_dataset('json', data_files=dataset_path)
@@ -268,7 +426,7 @@ class FineTuningService:
                 # Fallback to using 'text' field if available
                 texts = examples.get('text', examples.get('content', []))
             
-            return self.tokenizer(
+            return tokenizer(
                 texts, 
                 truncation=True, 
                 padding="max_length",
@@ -284,7 +442,7 @@ class FineTuningService:
         
         return tokenized_dataset["train"]
     
-    def fine_tune(self, job_data):
+    def fine_tune(self, job_data, queue_config):
         """Fine-tune the model with LoRA based on job specifications"""
         job_id = job_data["job_id"]
         model_id = job_data["model_id"]
@@ -292,35 +450,37 @@ class FineTuningService:
         base_model = job_data["base_model"]
         training_params = job_data["training_params"]
         
-        # Verify that this job is for our model type
-        if base_model != self.base_model_type:
-            logger.error(f"Job base model '{base_model}' doesn't match this worker's type '{self.base_model_type}'")
-            return False
+        # Extract configuration from queue_config
+        database_name = queue_config.get("database_name", "trainchimp-db")
+        bucket_name = queue_config.get("bucket_name", "trainchimp-bucket")
         
         # Update job status
         started_at = datetime.now().isoformat()
         self.cf_client.update_job_status(
-            self.database_name, 
+            database_name, 
             job_id, 
             "running",
             started_at=started_at
         )
-        self.cf_client.update_model_status(self.database_name, model_id, "training")
+        self.cf_client.update_model_status(database_name, model_id, "training")
         
         try:
             # Download dataset
             dataset_path = self.cf_client.download_dataset(
-                self.bucket_name,
+                bucket_name,
                 dataset_id,
                 os.path.join(self.data_dir, "datasets")
             )
             
             # Load base model if not already loaded
-            if self.model is None:
-                self.load_base_model()
+            if base_model not in self.models:
+                self.load_base_model(base_model)
+            
+            model = self.models[base_model]
+            tokenizer = self.tokenizers[base_model]
             
             # Process dataset
-            train_dataset = self.process_dataset(dataset_path)
+            train_dataset = self.process_dataset(dataset_path, base_model)
             
             # Configure LoRA
             lora_config = LoraConfig(
@@ -333,7 +493,7 @@ class FineTuningService:
             )
             
             # Apply LoRA config to the model
-            peft_model = get_peft_model(self.model, lora_config)
+            peft_model = get_peft_model(model, lora_config)
             
             # Setup training arguments
             output_dir = os.path.join(self.data_dir, "models", model_id)
@@ -352,7 +512,7 @@ class FineTuningService:
             
             # Setup data collator
             data_collator = DataCollatorForLanguageModeling(
-                tokenizer=self.tokenizer, 
+                tokenizer=tokenizer, 
                 mlm=False
             )
             
@@ -373,7 +533,7 @@ class FineTuningService:
             
             # Upload the model to R2
             adapter_url = self.cf_client.upload_model(
-                self.bucket_name,
+                bucket_name,
                 model_id,
                 output_dir
             )
@@ -381,13 +541,13 @@ class FineTuningService:
             # Update job and model status
             completed_at = datetime.now().isoformat()
             self.cf_client.update_job_status(
-                self.database_name, 
+                database_name, 
                 job_id, 
                 "completed",
                 completed_at=completed_at
             )
             self.cf_client.update_model_status(
-                self.database_name, 
+                database_name, 
                 model_id, 
                 "ready",
                 lora_adapter_url=adapter_url
@@ -400,35 +560,44 @@ class FineTuningService:
             logger.error(f"Error during fine-tuning: {e}", exc_info=True)
             
             # Update job and model status
-            self.cf_client.update_job_status(self.database_name, job_id, "failed")
-            self.cf_client.update_model_status(self.database_name, model_id, "failed")
+            self.cf_client.update_job_status(database_name, job_id, "failed")
+            self.cf_client.update_model_status(database_name, model_id, "failed")
             
             return False
+        finally:
+            # Reset the model to free up memory
+            self.reset_model(base_model)
     
-    def run(self, poll_interval=30):
+    def run(self, default_queue_name="finetune-queue", poll_interval=30):
         """Run the service, continuously polling for jobs"""
-        logger.info(f"Starting fine-tuning service for model type: {self.base_model_type}")
+        logger.info(f"Starting fine-tuning service")
         
         while True:
             try:
                 # Get the next job
-                job = self.cf_client.get_next_job(self.queue_name)
+                job = self.cf_client.get_next_job(default_queue_name)
                 
                 if job:
                     job_data = job["body"]
                     message_id = job["queue_message_id"]
                     
+                    # Extract queue configuration
+                    queue_config = job_data.get("queue_config", {})
+                    if not queue_config:
+                        queue_config = {
+                            "database_name": "trainchimp-db",
+                            "bucket_name": "trainchimp-bucket"
+                        }
+                        
                     logger.info(f"Processing job: {job_data['job_id']}")
                     
                     # Process the job
-                    success = self.fine_tune(job_data)
+                    success = self.fine_tune(job_data, queue_config)
                     
                     # Delete the job from the queue
                     if success:
-                        self.cf_client.delete_job(self.queue_name, message_id)
+                        self.cf_client.delete_job(default_queue_name, message_id)
                     
-                    # Reset the model to free up memory
-                    self.reset_model()
                 else:
                     logger.info(f"No jobs available, waiting {poll_interval} seconds...")
             
@@ -441,45 +610,45 @@ class FineTuningService:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="TrainChimp Fine-Tuning Service")
-    parser.add_argument("--model-type", type=str, required=True, 
-                        help="Base model type to fine-tune (e.g., mistralai/Mistral-7B-v0.1)")
-    parser.add_argument("--queue-name", type=str, default="my-app-queue",
-                        help="Cloudflare queue name to watch")
-    parser.add_argument("--database-name", type=str, default="trainchimp-db",
-                        help="Cloudflare D1 database name")
-    parser.add_argument("--bucket-name", type=str, default="my-app-bucket",
-                        help="Cloudflare R2 bucket name")
-    parser.add_argument("--data-dir", type=str, default="/tmp/trainchimp",
-                        help="Directory to store datasets and models")
-    parser.add_argument("--poll-interval", type=int, default=30,
-                        help="Interval in seconds to poll for new jobs")
-    
-    args = parser.parse_args()
-    
     # Get Cloudflare credentials from environment
-    cloudflare_api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
-    cloudflare_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    # cloudflare_api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    # cloudflare_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
     
-    if not cloudflare_api_token or not cloudflare_account_id:
-        logger.error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set in environment")
-        return 1
+    
+    # if not cloudflare_api_token or not cloudflare_account_id:
+    #     logger.error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set in environment")
+    #     return 1
     
     # Initialize Cloudflare client
-    cf_client = CloudflareClient(cloudflare_api_token, cloudflare_account_id)
+    # cf_client = CloudflareClient(cloudflare_api_token, cloudflare_account_id)
+    
+    # Try to get Supabase credentials
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    
+    supabase_client = None
+    if supabase_url and supabase_key:
+        logger.info("Initializing Supabase client")
+        supabase_client = SupabaseClient(supabase_url, supabase_key)
+    
+    # # Get data directory from environment or use default
+    # data_dir = os.environ.get("DATA_DIR", "/tmp/trainchimp")
+    
+    # # Get default queue name from environment or use default
+    # default_queue_name = os.environ.get("DEFAULT_QUEUE_NAME", "finetune-queue")
+    
+    # # Get poll interval from environment or use default
+    # poll_interval = int(os.environ.get("POLL_INTERVAL", "30"))
     
     # Initialize and run the service
     service = FineTuningService(
-        cf_client,
-        args.queue_name,
-        args.database_name,
-        args.bucket_name,
-        args.model_type,
-        args.data_dir
+        # cf_client,
+        supabase_client,
+        # data_dir
     )
     
     # Run the service
-    service.run(args.poll_interval)
+    service.run()
 
 
 if __name__ == "__main__":

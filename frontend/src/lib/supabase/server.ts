@@ -1,13 +1,14 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-export async function createClient() {
+export async function createClient(options: object = {}) {
     const cookieStore = await cookies()
 
     return createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
+        ...options,
         cookies: {
           getAll() {
             return cookieStore.getAll()
@@ -28,6 +29,12 @@ export async function createClient() {
     )
   }
 
+export async function createSecretClient(schema: string) {
+  return createClient({
+    db: { schema }
+  })
+}
+
 export async function getSession() {
   const supabase = await createClient()
   try {
@@ -40,6 +47,12 @@ export async function getSession() {
 }
 
 export async function getUser() {
-  const session = await getSession()
-  return session?.user || null
+  const supabase = await createClient()
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    return user
+  } catch (error) {
+    console.error('Error getting user:', error)
+    return null
+  }
 } 
