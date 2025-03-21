@@ -1,43 +1,47 @@
-# 🐵 TrainChimp: The Open-Source Serverless AI Fine-Tuning & Inference Cloud
+# 🐵 TrainChimp: The Open-Source No-Code AI Fine-Tuning Tool
 
-TrainChimp is an open-source platform designed to streamline your entire generative AI lifecycle, from fine-tuning to scalable inference in a no-code way.
+TrainChimp is an open-source tool designed to streamline your entire generative AI lifecycle, from fine-tuning to scalable inference in a no-code way.
 
 ## 📌 Overview of TrainChimp
 
 TrainChimp provides a unified, user-friendly interface to:
-- Launch no-code supervised fine-tuning jobs for language models using all available hardware accelerations (flash attention, fused kernels, etc) on AWS GPUs
+- Launch no-code fine-tuning jobs for language models automatically using any available hardware accelerations (flash attention, fused kernels, etc) on RunPod GPUs
+- Handle private datasets as well as huggingface datasets (define a template)
 - Efficiently utilize LoRA (Low-Rank Adaptation) techniques for resource-effective fine-tuning
 - Manage data pipelines and analytics with Weights & Biases (wandb)
-- Deploy to Together.ai for serverless inference
+- Deploy LoRA-tuned models to Together.ai for serverless inference
+
+## Fine-Tuning Options
+
+Supported fine-tuning options:
+- Full Fine-tuning ✅
+- LORA Fine-tuning ✅
+
+Supported fine-tuning methods:
+- SFT ✅
+- DPO ✅
+- PPO ✅
+- GRPO ✅
+
+Supported models:
+- Llama 3.x Series ✅
+- Qwen ✅
+- DeepSeek ✅
+- Others (?)
 
 ## Core Tech Stack
-- Supabase for authentication, database, object storage, and queues
+- SQLite for database
 - Next.js for the frontend
 - Weights & Biases for analytics
-- AWS instances for fine-tuning that automatically start and stop when idle
-- Together.ai for inference
+- RunPod for fine-tuning that automatically starts and stops when idle
+- Together.ai for serverless inference
 
 ## Get Started
 
 ```bash
-git clone https://github.com/trainchimp/trainchimp.git
+git clone https://github.com/ephibbs/trainchimp.git
 cd trainchimp
-```
-
-then fill in your environment variables
-```bash
-cp .env.example .env
-```
-
-then run the setup script
-```bash
-./setup.sh
-```
-then run the frontend
-```bash
-cd frontend
-npm install
-npm run dev
+./start.sh
 ```
 
 ## ⚠️ Warning

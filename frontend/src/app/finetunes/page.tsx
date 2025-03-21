@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
 type FineTune = {
   id: string;
@@ -24,8 +23,6 @@ export default function FinetunesPage() {
   const [datasets, setDatasets] = useState<Array<{id: string, name: string}>>([]);
   const [isLoading, setIsLoading] = useState(false);
   
-  const supabase = createClient();
-  
   // Fetch finetunes and datasets when component mounts
   useEffect(() => {
     fetchFinetunes();
@@ -35,14 +32,6 @@ export default function FinetunesPage() {
   const fetchFinetunes = async () => {
     try {
       setIsLoading(true);
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        console.error("User not authenticated");
-        return;
-      }
       
       // Fetch finetunes for the current user
       const { data, error } = await supabase

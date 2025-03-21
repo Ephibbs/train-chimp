@@ -1,18 +1,9 @@
-import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
+import { createJob, queueJob, JobParameters, JobQueueMessage } from '../../../lib/db';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-    
     // Get request data
     const body = await request.json();
     const { name, baseModel, datasetId, epochs } = body;
@@ -24,49 +15,36 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Create finetune record in the database
-    const { data: finetune, error } = await supabase
-      .from('jobs')
-      .insert({
-        user_id: user.id,
-        name,
-        dataset_id: datasetId,
-        parameters: {
-          epochs
-        },
-        status: 'queued'
-      })
-      .select('id')
-      .single();
+    const jobId = uuidv4();
+    const userId = 'current-user-id'; // You would get this from auth
     
-    if (error) {
-      console.error("Error creating job:", error);
+    // Create finetune record in the database
+    try {
+      const jobParameters: JobParameters = { epochs };
+      await createJob(jobId, userId, name, datasetId, jobParameters);
+    } catch (err) {
+      console.error("Error creating job:", err);
       return NextResponse.json(
         { error: "Failed to create job" },
         { status: 500 }
       );
     }
     
-    // Submit job to the Supabase queue using direct SQL for PGMQ
-    const { error: queueError } = await supabase
-      .schema('pgmq_public')
-      .rpc('send', {
-        queue_name: 'train-jobs',
-        message: {
-          job_id: finetune.id,
-          user_id: user.id,
-          dataset_id: datasetId,
-          parameters: {
-            base_model: baseModel,
-            epochs
-          }
+    // Add job to the queue
+    try {
+      const queueMessage: JobQueueMessage = {
+        job_id: jobId,
+        user_id: userId,
+        dataset_id: datasetId,
+        parameters: {
+          base_model: baseModel,
+          epochs
         }
-      });
-
-    
-    
-    if (queueError) {
-      console.error("Error submitting job to queue:", queueError);
+      };
+      
+      await queueJob(jobId, uuidv4(), queueMessage);
+    } catch (err) {
+      console.error("Error submitting job to queue:", err);
       return NextResponse.json(
         { error: "Failed to queue job" },
         { status: 500 }
@@ -75,7 +53,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({ 
       success: true, 
-      jobId: finetune.id 
+      jobId: jobId 
     });
     
   } catch (error) {
