@@ -2,7 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { FileUpIcon, Database, Plus } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { 
+  getUserDatasets, 
+  createDatasetRepo, 
+  uploadFileToDataset, 
+  deleteDatasetRepo, 
+  COLLECTION_NAME,
+  getHFUsername,
+  createDatasetCard
+} from "@/lib/hf";
+// Import any additional dependencies as needed
 
 type Dataset = {
   id: string;
@@ -24,49 +33,36 @@ export default function DatasetsPage() {
   });
   const [files, setFiles] = useState<File[]>([]);
   
-  const supabase = createClient();
-  
   // Fetch datasets when component mounts
   useEffect(() => {
     fetchDatasets();
   }, []);
   
+  // Fetch datasets from Hugging Face
   const fetchDatasets = async () => {
     try {
       setIsLoading(true);
       
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get the username from the token
+      const username = await getHFUsername() as string;
       
-      if (!user) {
-        console.error("User not authenticated");
-        return;
-      }
+      // Use the getUserDatasets function from hf.ts
+      const userDatasets = await getUserDatasets({username});
       
-      // Fetch datasets for the current user
-      const { data, error } = await supabase
-        .from('datasets')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) {
-        throw error;
-      }
-      
-      // Transform the data to match the Dataset type
-      const formattedData = data.map(item => ({
-        id: item.id,
-        name: item.name,
-        description: item.description || "",
-        fileCount: 1, // You might need to count files from storage
-        size: "Unknown", // You might need to calculate this
-        createdAt: new Date(item.created_at),
-        datasetUrl: item.dataset_url
+      // Transform to our Dataset type
+      const formattedDatasets: Dataset[] = userDatasets.map(ds => ({
+        id: ds.id,
+        name: ds.id,
+        description: '', // No description from HF API function, use empty string
+        fileCount: 1, // Set default since we don't have this info
+        size: '0 Bytes', // Set default since we don't have this info
+        createdAt: new Date(ds.lastModified),
+        datasetUrl: `https://huggingface.co/datasets/${ds.id}`
       }));
       
-      setDatasets(formattedData);
-    } catch (error) {
+      setDatasets(formattedDatasets);
+      
+    } catch (error: unknown) {
       console.error("Error fetching datasets:", error);
     } finally {
       setIsLoading(false);
@@ -106,41 +102,62 @@ export default function DatasetsPage() {
     try {
       setIsLoading(true);
       
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get the HF token
+      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
       
-      if (!user) {
-        throw new Error("User not authenticated");
+      if (!hfToken) {
+        throw new Error("Hugging Face token not found");
       }
       
-      // Upload each file to storage
-      const timestamp = Date.now();
-      const filePath = `${user.id}/${timestamp}-${files[0].name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('datasets')
-        .upload(filePath, files[0]);
+      // Create dataset repository name (sanitize the name for URL safety)
+      const repoName = formData.name
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w-]/g, '-')
+        .replace(/-+/g, '-');
+        
+      const username = await getHFUsername();
+      const datasetId = `${username}/${repoName}`;
       
-      if (uploadError) {
-        console.error("Error uploading file:", uploadError);
-        throw uploadError;
-      }
-      
-      // Create dataset record in the database
-      const { error } = await supabase
-        .from('datasets')
-        .insert({
-          user_id: user.id,
-          name: formData.name,
+      // 1. Create the dataset repository on Hugging Face
+      const createResult = await createDatasetRepo({
+        name: repoName,
+        options: {
           description: formData.description,
-          dataset_url: filePath
-        })
-        .select();
+          private: false,
+          tags: [COLLECTION_NAME]
+        },
+        token: hfToken
+      });
       
-      if (error) {
-        console.error("Error creating dataset:", error);
-        throw error;
+      if (!createResult) {
+        throw new Error("Failed to create dataset repository");
       }
 
+      // 2. Tag it as a TrainChimp dataset
+      await createDatasetCard({
+        repoId: datasetId,
+        cardData: {
+          tags: [COLLECTION_NAME],
+          dataset_description: formData.description
+        },
+        token: hfToken
+      });
+      
+      // 3. Upload the files to the dataset
+      for (const file of files) {
+        const uploadSuccess = await uploadFileToDataset({
+          repoId: datasetId,
+          filePath: file.name,
+          fileContent: file,
+          token: hfToken
+        });
+        
+        if (!uploadSuccess) {
+          throw new Error(`Failed to upload file: ${file.name}`);
+        }
+      }
+      
       // Reset form and close modal
       setFormData({ name: "", description: "" });
       setFiles([]);
@@ -149,15 +166,15 @@ export default function DatasetsPage() {
       // Refresh datasets list
       fetchDatasets();
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error creating dataset:", error);
-      alert("Failed to create dataset. Please try again.");
+      alert(`Failed to create dataset: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsLoading(false);
     }
   };
   
-  const handleDeleteDataset = async (datasetId: string, datasetUrl: string) => {
+  const handleDeleteDataset = async (datasetId: string) => {
     if (!confirm("Are you sure you want to delete this dataset? This action cannot be undone.")) {
       return;
     }
@@ -165,26 +182,13 @@ export default function DatasetsPage() {
     try {
       setIsLoading(true);
       
-      // Delete the file from storage
-      if (datasetUrl) {
-        const { error: storageError } = await supabase.storage
-          .from('datasets')
-          .remove([datasetUrl]);
-          
-        if (storageError) {
-          console.error("Error deleting file from storage:", storageError);
-        }
-      }
+      // Delete the dataset using our utility function
+      const deleteSuccess = await deleteDatasetRepo({
+        repoId: datasetId
+      });
       
-      // Delete the dataset record
-      const { error } = await supabase
-        .from('datasets')
-        .delete()
-        .eq('id', datasetId);
-        
-      if (error) {
-        console.error("Error deleting dataset:", error);
-        throw error;
+      if (!deleteSuccess) {
+        throw new Error("Failed to delete dataset");
       }
       
       // Update the UI
@@ -198,37 +202,14 @@ export default function DatasetsPage() {
     }
   };
   
-  // Update the handleViewDataset function with better error handling
   const handleViewDataset = async (datasetUrl: string) => {
-    console.log("Dataset URL:", datasetUrl);
-    
     if (!datasetUrl) {
       alert("Dataset URL not available");
       return;
     }
     
-    try {
-      // Create a signed URL with an expiration time (more reliable than public URL)
-      const { data, error } = await supabase.storage
-        .from('datasets')
-        .createSignedUrl(datasetUrl, 60); // Valid for 60 seconds
-      
-      if (error) {
-        console.error("Error creating signed URL:", error);
-        alert(`Error accessing file: ${error.message}`);
-        return;
-      }
-      
-      if (data?.signedUrl) {
-        // Open the URL in a new tab
-        window.open(data.signedUrl, '_blank');
-      } else {
-        alert("Failed to generate a URL for this file");
-      }
-    } catch (error) {
-      console.error("Error viewing dataset:", error);
-      alert("Failed to open the dataset file. The storage bucket might not exist.");
-    }
+    // Simply open the Hugging Face dataset URL
+    window.open(datasetUrl, '_blank');
   };
   
   return (
@@ -318,7 +299,7 @@ export default function DatasetsPage() {
                       Use
                     </button>
                     <button 
-                      onClick={() => handleDeleteDataset(dataset.id, dataset.datasetUrl)}
+                      onClick={() => handleDeleteDataset(dataset.id)}
                       className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
                     >
                       Delete

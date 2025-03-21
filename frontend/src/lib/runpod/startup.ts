@@ -33,8 +33,8 @@ export async function startGpuInstance(
   // Environment variables to pass to the container
   const envVariables = [
     { key: 'BASE_MODEL', value: baseModel },
-    { key: 'SUPABASE_URL', value: process.env.SUPABASE_URL },
-    { key: 'SUPABASE_ANON_KEY', value: process.env.SUPABASE_ANON_KEY },
+    { key: 'HF_TOKEN', value: process.env.HF_TOKEN },
+    { key: 'WANDB_API_KEY', value: process.env.WANDB_API_KEY },
   ];
 
   // Add job ID if provided

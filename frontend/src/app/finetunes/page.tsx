@@ -2,6 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
+import { 
+  getUserModels, 
+  getUserDatasets, 
+  createModelRepo, 
+  createDatasetRepo,
+  uploadFileToDataset,
+  COLLECTION_NAME,
+  getHFUsername,
+  createDatasetCard,
+  createModelCard
+} from "@/lib/hf";
 
 type FineTune = {
   id: string;
@@ -33,26 +44,32 @@ export default function FinetunesPage() {
     try {
       setIsLoading(true);
       
-      // Fetch finetunes for the current user
-      const { data, error } = await supabase
-        .from('models')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) {
-        throw error;
+      // Get HF token from environment or storage
+      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
+      
+      if (!hfToken) {
+        console.error("Hugging Face token not found");
+        return;
       }
       
-      // Transform the data to match the FineTune type
-      const formattedData = data?.map(item => ({
-        id: item.id,
-        name: item.name,
-        baseModel: item.base_model,
-        status: item.status,
-        createdAt: new Date(item.created_at),
-        updatedAt: new Date(item.updated_at || item.created_at)
-      })) || [];
+      // Get the username from the token
+      const username = await getHFUsername() as string;
+      
+      // Use the getUserModels function from hf.ts
+      const userModels = await getUserModels({username});
+      
+      // Transform to our FineTune type
+      // Filter models tagged with TrainChimp
+      const formattedData = userModels
+        .filter(model => model.tags.includes(COLLECTION_NAME))
+        .map(item => ({
+          id: item.id,
+          name: item.modelId,
+          baseModel: item.tags.find(tag => tag.startsWith('base-model:'))?.replace('base-model:', '') || 'Unknown',
+          status: getModelStatus(item),
+          createdAt: new Date(),  // Use current date as fallback
+          updatedAt: new Date(item.lastModified)
+        }));
       
       setFinetunes(formattedData);
     } catch (error) {
@@ -62,100 +79,121 @@ export default function FinetunesPage() {
     }
   };
   
+  // Helper function to determine model status based on model tags
+  const getModelStatus = (model: { tags: string[] }): "queued" | "running" | "completed" | "failed" => {
+    if (model.tags.includes('status:failed')) return "failed";
+    if (model.tags.includes('status:running')) return "running";
+    if (model.tags.includes('status:queued')) return "queued";
+    return "completed"; // Default to completed if the model exists without status tags
+  };
+  
   const fetchDatasets = async () => {
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get the username from the token
+      const username = await getHFUsername() as string;
       
-      if (!user) {
-        console.error("User not authenticated");
-        return;
-      }
+      // Use the getUserDatasets function from hf.ts
+      const userDatasets = await getUserDatasets({username});
       
-      // Fetch datasets for the current user
-      const { data, error } = await supabase
-        .from('datasets')
-        .select('id, name')
-        .eq('user_id', user.id);
-        
-      if (error) {
-        throw error;
-      }
+      // Transform to the format we need
+      const datasetsList = userDatasets.map(dataset => ({
+        id: dataset.id,
+        name: dataset.id.split('/').pop() || dataset.id
+      }));
       
-      setDatasets(data || []);
+      setDatasets(datasetsList);
     } catch (error) {
       console.error("Error fetching datasets:", error);
     }
   };
 
-  // Fix the TypeScript errors for file upload
+  // Upload dataset function (for when creating a new dataset during finetune)
   const handleFileUpload = async (file: File, datasetName: string) => {
     try {
       setIsUploading(true);
       setUploadError(null);
       setUploadProgress(0);
       
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Create dataset repository name (sanitize the name for URL safety)
+      const repoName = datasetName
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w-]/g, '-')
+        .replace(/-+/g, '-');
       
-      if (!user) {
-        throw new Error("User not authenticated");
-      }
+      // Get the username from token
+      const username = await getHFUsername() as string;
+      const datasetId = `${username}/${repoName}`;
       
-      // Create a unique file path
-      const filePath = `datasets/${user.id}/${Date.now()}_${file.name}`;
-      
-      // Upload file to Supabase Storage with progress tracking
-      // Use FileOptions that are supported by Supabase
-      const { error: uploadError } = await supabase.storage
-        .from('datasets')
-        .upload(filePath, file, {
-          contentType: 'application/jsonl',
-          cacheControl: '3600',
-          upsert: false,
+      // Create progress simulation (since HF API doesn't provide upload progress)
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          const newProgress = prev + 5;
+          return newProgress >= 90 ? 90 : newProgress;
         });
-        
-      if (uploadError) {
-        throw uploadError;
+      }, 500);
+      
+      // 1. Create the dataset repository
+      const createResult = await createDatasetRepo({
+        name: repoName,
+        options: {
+          description: `Dataset for fine-tuning: ${datasetName}`,
+          private: false,
+        },
+      });
+      
+      // Add tag to identify this as a TrainChimp dataset
+      await createDatasetCard({
+        repoId: datasetId,
+        cardData: {
+          tags: [COLLECTION_NAME],
+          dataset_description: `Dataset for fine-tuning: ${datasetName}`
+        }
+      });
+
+      if (!createResult) {
+        throw new Error("Failed to create dataset repository");
       }
       
-      // Create dataset record in the database
-      const { data, error } = await supabase
-        .from('datasets')
-        .insert({
-          user_id: user.id,
-          name: datasetName,
-          file_path: filePath,
-          file_size: file.size,
-          file_type: file.type,
-          status: 'ready'
-        })
-        .select('id, name');
+      // 2. Upload the file to the dataset
+      const uploadSuccess = await uploadFileToDataset({
+        repoId: datasetId,
+        filePath: file.name,
+        fileContent: file,
+      });
       
-      if (error) {
-        throw error;
+      clearInterval(progressInterval);
+      
+      if (!uploadSuccess) {
+        throw new Error("Failed to upload file");
       }
+      
+      setUploadProgress(100);
       
       // Add the new dataset to the datasets list
-      setDatasets(prev => [...prev, ...(data || [])]);
+      const newDataset = {
+        id: datasetId,
+        name: datasetName
+      };
+      
+      setDatasets(prev => [...prev, newDataset]);
       
       // Select the newly created dataset
-      if (data && data.length > 0) {
-        setDatasetOption(data[0].id);
-      }
+      setDatasetOption(datasetId);
       
       // Reset file selection
       setSelectedFile(null);
       
     } catch (error) {
       console.error("Error uploading dataset:", error);
-      setUploadError("Failed to upload dataset. Please try again.");
+      setUploadError(`Failed to upload dataset: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
-      setUploadProgress(0);
+      setTimeout(() => setUploadProgress(0), 3000);
     }
   };
 
+  // Handle form submission to create a new fine-tune
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
@@ -173,24 +211,54 @@ export default function FinetunesPage() {
         throw new Error("Please fill out all required fields");
       }
       
-      // Call server-side API endpoint
-      const response = await fetch('/api/finetunes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Get HF token
+      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
+      
+      if (!hfToken) {
+        throw new Error("Hugging Face token not found");
+      }
+      
+      // Create repository name for the fine-tuned model
+      const repoName = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w-]/g, '-')
+        .replace(/-+/g, '-');
+      
+      // Create model repository on Hugging Face
+      const createResult = await createModelRepo({
+        name: repoName,
+        options: {
+          description: `Fine-tuned model: ${name}`,
+          private: false,
         },
-        body: JSON.stringify({
-          name,
-          baseModel,
-          datasetId,
-          epochs
-        }),
+        token: hfToken
+      });
+
+      await createModelCard({
+        repoId: repoName,
+        cardData: {
+          base_model: baseModel,
+          datasets: [datasetId],
+          tags: [
+            COLLECTION_NAME,
+            'status:queued'
+          ],
+          model_description: `Fine-tuned model: ${name}`,
+          trainParams: {
+            epochs: epochs,
+            learning_rate: 0.0001,
+            batch_size: 16,
+            max_length: 1024
+          }
+        }
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to create fine-tune");
+      if (!createResult) {
+        throw new Error("Failed to create model repository");
       }
+
+      
       
       // Close modal and refresh finetunes list
       setIsModalOpen(false);
@@ -198,7 +266,7 @@ export default function FinetunesPage() {
       
     } catch (error) {
       console.error("Error creating fine-tune:", error);
-      alert("Failed to create fine-tune. Please try again.");
+      alert(`Failed to create fine-tune: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
