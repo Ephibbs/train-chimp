@@ -87,6 +87,11 @@ interface ModelCardData {
   tags: string[];
   model_description?: string;
   trainParams?: TrainParams;
+  status?: string;
+  queued_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  error_details?: string;
 }
 
 interface DatasetCardData {
@@ -478,6 +483,71 @@ export async function createModelCard({
 }
 
 /**
+ * Update an existing model card with new data
+ * @param params Object containing repoId, cardData and optional token
+ * @returns Success status
+ */
+export async function updateModelCard({
+  repoId,
+  cardData,
+  token
+}: CreateModelCardParams): Promise<boolean> {
+  try {
+    const accessToken = token || hfToken;
+    if (!accessToken) {
+      console.error("No Hugging Face token provided");
+      return false;
+    }
+    
+    // First, get the existing model card
+    const existingCard = await getModelCard({ repoId, token: accessToken });
+    
+    if (!existingCard) {
+      console.error(`Could not retrieve existing model card for ${repoId}`);
+      return false;
+    }
+    
+    // Merge the existing card data with the new data
+    const updatedCardData: ModelCardData = {
+      ...existingCard,
+      ...cardData,
+      // For arrays, if new values are provided, use them, otherwise keep existing values
+      tags: cardData.tags || existingCard.tags,
+      datasets: cardData.datasets || existingCard.datasets,
+      // For nested objects, merge them
+      trainParams: cardData.trainParams ? {
+        ...existingCard.trainParams,
+        ...cardData.trainParams
+      } : existingCard.trainParams
+    };
+    
+    // Generate updated README.md content for model card
+    const cardContent = generateModelCardContent(updatedCardData);
+    
+    // Upload updated README.md to the repository
+    await hub.uploadFiles({
+      repo: {
+        type: "model",
+        name: repoId
+      },
+      files: [
+        {
+          path: "README.md",
+          content: new Blob([cardContent], { type: "text/markdown" })
+        }
+      ],
+      accessToken
+    });
+    
+    return true;
+  } catch (error) {
+    console.error(`Error updating model card for ${repoId}:`, error);
+    return false;
+  }
+}
+
+
+/**
  * Create and push a dataset card with tags
  * @param params Object containing repoId, cardData and optional token
  * @returns Success status
@@ -569,7 +639,7 @@ library_name: ${library_name || ""}
 ${datasets && datasets.length > 0 ? `datasets:\n${datasets.map(dataset => `- ${dataset}`).join('\n')}` : ''}
 ${base_model ? `base_model: ${base_model}` : ''}
 ${tags && tags.length > 0 ? `tags:\n${tags.map(tag => `- ${tag}`).join('\n')}` : ''}
-${trainParams ? `train_params:\n${trainParams.map(param => `- ${param}`).join('\n')}` : ''}
+${trainParams ? `train_params:\n${Object.entries(trainParams).map(([key, value]) => `${key}: ${value}`).join('\n')}` : ''}
 ---
 
 # Model Card
@@ -593,8 +663,7 @@ function generateDatasetCardContent(cardData: DatasetCardData): string {
 language: ${language || "en"}
 license: ${license || "mit"}
 ${task_categories && task_categories.length > 0 ? `task_categories:\n${task_categories.map(cat => `- ${cat}`).join('\n')}` : ''}
-tags:
-${tags.map(tag => `- ${tag}`).join('\n')}
+${tags && tags.length > 0 ? `tags:\n${tags.map(tag => `- ${tag}`).join('\n')}` : ''}
 ---
 
 # Dataset Card: ${pretty_name || ""}
@@ -655,6 +724,8 @@ export function parseModelCard(cardText: string): ModelCardData {
               const tag = lines[i].trim().substring(1).trim();
               modelData.tags.push(tag);
             }
+          } else if (line.startsWith('status:')) {
+            modelData.status = line.substring('status:'.length).trim();
           } else if (line.startsWith('train_params:')) {
             // Extract training parameters
             const trainParams: TrainParams = {

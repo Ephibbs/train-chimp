@@ -16,12 +16,12 @@ export function Sidebar() {
   const pathname = usePathname();
   
   const navItems = [
-    { name: "Dashboard", href: "/dashboard", icon: Home },
-    { name: "Chat", href: "/dashboard/chat", icon: MessageCircle },
-    { name: "Datasets", href: "/dashboard/datasets", icon: Database },
-    { name: "Fine-tunes", href: "/dashboard/finetunes", icon: FlaskConical },
-    { name: "Settings", href: "/dashboard/settings", icon: Settings },
-    { name: "Help", href: "/dashboard/help", icon: HelpCircle },
+    { name: "Dashboard", href: "/", icon: Home },
+    { name: "Chat", href: "/chat", icon: MessageCircle },
+    { name: "Datasets", href: "/datasets", icon: Database },
+    { name: "Fine-tunes", href: "/finetunes", icon: FlaskConical },
+    { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Help", href: "/help", icon: HelpCircle },
   ];
 
   return (

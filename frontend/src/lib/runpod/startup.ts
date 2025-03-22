@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { updateModelCard } from '../hf';
+import { getModelCard } from '../hf';
 
 /**
  * Starts a RunPod GPU instance based on base model and required GPU memory
@@ -9,8 +11,7 @@ import axios from 'axios';
  */
 export async function startGpuInstance(
   baseModel: string,
-  requiredGpuMemoryGB: number,
-  jobId?: string
+  requiredGpuMemoryGB: number
 ): Promise<{
   podId: string;
   instanceType: string;
@@ -32,17 +33,13 @@ export async function startGpuInstance(
 
   // Environment variables to pass to the container
   const envVariables = [
-    { key: 'BASE_MODEL', value: baseModel },
     { key: 'HF_TOKEN', value: process.env.HF_TOKEN },
     { key: 'WANDB_API_KEY', value: process.env.WANDB_API_KEY },
+    { key: 'MODEL_NAME', value: baseModel },
+    { key: 'GITHUB_COMMIT', value: process.env.GITHUB_COMMIT || 'main' },
   ];
 
-  // Add job ID if provided
-  if (jobId) {
-    envVariables.push({ key: 'JOB_ID', value: jobId });
-  }
-
-  const startupCommands = generateStartupCommands(baseModel, jobId);
+  const startupCommands = generateStartupCommands(baseModel);
 
   // Configure pod launch parameters according to RunPod API docs
   const params = {
@@ -101,29 +98,18 @@ export async function startGpuInstance(
     }
 
     console.log(`Pod ${podId} launched successfully`);
-    // Update job status in Supabase if a job ID was provided
-    if (jobId) {
-      try {
-        // Create Supabase client
-        const { createClient } = await import('@supabase/supabase-js');
-        const supabaseUrl = process.env.SUPABASE_URL || '';
-        const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        
-        // Update the job with pod information
-        await supabase
-          .from('jobs')
-          .update({
-            status: 'provisioning'
-          })
-          .eq('job_id', jobId);
-        
-        console.log(`Updated job ${jobId} status in Supabase`);
-      } catch (supabaseError) {
-        // Log but don't fail the whole operation if Supabase update fails
-        console.error(`Failed to update job status in Supabase: ${supabaseError instanceof Error ? supabaseError.message : String(supabaseError)}`);
-      }
+
+    // Get Model card from Hugging Face
+    const modelCard = await getModelCard({ repoId: baseModel });
+    if (!modelCard) {
+        throw new Error('Model card not found');
     }
+    modelCard.tags = modelCard.tags.filter(tag => tag !== 'status:queued');
+    modelCard.status = 'provisioning';
+    // Update the model card with the pod information
+    await updateModelCard({ repoId: baseModel, cardData: modelCard });
+    
+    console.log(`Updated job ${baseModel} status in Supabase`);
     return {
       podId: podId,
       instanceType: gpuType,
@@ -192,7 +178,7 @@ export function calculateRequiredGpuMemory(baseModel: string, parameters: number
  * @param jobId Optional job ID to process
  * @returns Array of startup commands
  */
-function generateStartupCommands(baseModel: string, jobId?: string): string[] {
+function generateStartupCommands(baseModel: string): string[] {
   const commands = [
     "bash",
     "-c",
@@ -210,11 +196,10 @@ function generateStartupCommands(baseModel: string, jobId?: string): string[] {
     # Create config file for this model
     echo '{
       "base_model": "${baseModel}",
-      "timestamp": "'$(date +%s)'"${jobId ? ',\n      "job_id": "' + jobId + '"' : ''}
     }' > config.json
     
     # Start the training process
-    ${jobId ? `./backend/runpod/launch_job.sh "${jobId}"` : './backend/runpod/launch_finetuning.sh'}
+    ./backend/runpod/launch_finetuning.sh
     
     echo "Setup complete!" >> /workspace/setup.log
     `

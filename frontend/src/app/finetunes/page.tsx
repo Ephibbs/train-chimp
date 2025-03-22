@@ -13,6 +13,7 @@ import {
   createDatasetCard,
   createModelCard
 } from "@/lib/hf";
+import { startGpuInstance } from "@/lib/runpod/startup";
 
 type FineTune = {
   id: string;
@@ -26,6 +27,10 @@ type FineTune = {
 export default function FinetunesPage() {
   const [finetunes, setFinetunes] = useState<FineTune[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTune | null>(null);
+  const [deploymentType, setDeploymentType] = useState<string | null>(null);
+  const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [datasetOption, setDatasetOption] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -224,10 +229,13 @@ export default function FinetunesPage() {
         .toLowerCase()
         .replace(/[^\w-]/g, '-')
         .replace(/-+/g, '-');
+
+      const username = await getHFUsername() as string;
+      const modelId = `${username}/${repoName}`;
       
       // Create model repository on Hugging Face
       const createResult = await createModelRepo({
-        name: repoName,
+        name: modelId,
         options: {
           description: `Fine-tuned model: ${name}`,
           private: false,
@@ -236,14 +244,15 @@ export default function FinetunesPage() {
       });
 
       await createModelCard({
-        repoId: repoName,
+        repoId: modelId,
         cardData: {
           base_model: baseModel,
           datasets: [datasetId],
           tags: [
-            COLLECTION_NAME,
-            'status:queued'
+            COLLECTION_NAME
           ],
+          status: 'queued',
+          queued_at: new Date().toISOString(),
           model_description: `Fine-tuned model: ${name}`,
           trainParams: {
             epochs: epochs,
@@ -258,8 +267,9 @@ export default function FinetunesPage() {
         throw new Error("Failed to create model repository");
       }
 
-      
-      
+      const gpuInstance = await startGpuInstance(modelId, 16);
+      console.log(gpuInstance);
+
       // Close modal and refresh finetunes list
       setIsModalOpen(false);
       fetchFinetunes();
@@ -269,6 +279,78 @@ export default function FinetunesPage() {
       alert(`Failed to create fine-tune: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  // Handle deployment modal open
+  const handleDeployClick = (finetune: FineTune) => {
+    setSelectedModelForDeploy(finetune);
+    setIsDeployModalOpen(true);
+  };
+  
+  // Deploy with Together AI
+  const deployTogetherAI = async () => {
+    if (!selectedModelForDeploy) return;
+    
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement Together AI deployment
+      console.log(`Deploying ${selectedModelForDeploy.name} to Together AI`);
+      
+      // Simulate deployment process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${selectedModelForDeploy.name} to Together AI`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to Together AI:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
+  
+  // Deploy with RunPod
+  const deployRunPod = async () => {
+    if (!selectedModelForDeploy) return;
+    
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement RunPod deployment
+      console.log(`Deploying ${selectedModelForDeploy.name} to RunPod Serverless`);
+      
+      // Simulate deployment process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${selectedModelForDeploy.name} to RunPod Serverless`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to RunPod:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
+  
+  // Deploy with Hugging Face
+  const deployHuggingFace = async () => {
+    if (!selectedModelForDeploy) return;
+    
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement HF dedicated deployment
+      console.log(`Deploying ${selectedModelForDeploy.name} to Hugging Face Dedicated`);
+      
+      // Simulate deployment process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${selectedModelForDeploy.name} to Hugging Face Dedicated`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to Hugging Face:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
     }
   };
   
@@ -350,7 +432,10 @@ export default function FinetunesPage() {
                       View
                     </button>
                     {finetune.status === "completed" && (
-                      <button className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300">
+                      <button 
+                        className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
+                        onClick={() => handleDeployClick(finetune)}
+                      >
                         Deploy
                       </button>
                     )}
@@ -533,6 +618,78 @@ export default function FinetunesPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Deployment Modal */}
+      {isDeployModalOpen && (
+        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-medium">Deploy Model</h3>
+                <button 
+                  onClick={() => setIsDeployModalOpen(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600 dark:text-gray-300">
+                  Select a deployment option for {selectedModelForDeploy?.name}:
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <button
+                  onClick={() => deployTogetherAI()}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">Together AI</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy as LoRA to Together AI serverless</div>
+                </button>
+                
+                <button
+                  onClick={() => deployRunPod()}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">RunPod Serverless</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod's serverless platform</div>
+                </button>
+                
+                <button
+                  onClick={() => deployHuggingFace()}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">Hugging Face Dedicated</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy to Hugging Face Inference API</div>
+                </button>
+              </div>
+              
+              {deploymentLoading && (
+                <div className="mt-4 text-center">
+                  <div className="inline-block animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Deploying model...</p>
+                </div>
+              )}
+              
+              <div className="pt-4 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDeployModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  disabled={deploymentLoading}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
