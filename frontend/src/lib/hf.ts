@@ -3,7 +3,7 @@ import * as hub from '@huggingface/hub';
 // Interface definitions for HF data
 interface HFModel {
   id: string;
-  modelId: string;
+  name: string;
   author: string;
   tags: string[];
   downloads: number;
@@ -173,9 +173,10 @@ export async function getUserModels({
       search: { owner: username },
       ...options
     })) {
+      console.log("Model:", model);
       models.push({
         id: model.id,
-        modelId: model.id.split('/').pop() || model.id,
+        name: model.name,
         author: username,
         tags: model.tags || [],
         downloads: model.downloads || 0,
@@ -208,9 +209,11 @@ export async function getUserDatasets({
       search: { owner: username },
       ...options
     })) {
+      console.log("Dataset:", dataset);
       datasets.push({
         id: dataset.id,
         author: username,
+        name: dataset.name,
         tags: dataset.tags || [],
         downloads: dataset.downloads || 0,
         lastModified: dataset.lastModified || new Date().toISOString(),
@@ -247,7 +250,7 @@ export async function searchModels({
       
       models.push({
         id: model.id,
-        modelId: model.id.split('/').pop() || model.id,
+        name: model.name,
         author: model.id.split('/')[0],
         tags: model.tags || [],
         downloads: model.downloads || 0,
@@ -415,7 +418,7 @@ export async function uploadFileToDataset({
  * @returns Success status
  */
 export async function deleteDatasetRepo({
-  repoId,
+  name,
   token
 }: DeleteDatasetRepoParams): Promise<boolean> {
   try {
@@ -428,7 +431,7 @@ export async function deleteDatasetRepo({
     await hub.deleteRepo({
       repo: {
         type: "dataset",
-        name: repoId
+        name: name
       },
       accessToken
     });

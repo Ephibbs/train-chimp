@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { FileUpIcon, Database, Plus } from "lucide-react";
+import Link from "next/link";
 import { 
   getUserDatasets, 
   createDatasetRepo, 
@@ -45,14 +46,22 @@ export default function DatasetsPage() {
       
       // Get the username from the token
       const username = await getHFUsername() as string;
+
+      if (!username) {
+        throw new Error("Username not found");
+      }
+
+      console.log("Username:", username);
       
       // Use the getUserDatasets function from hf.ts
       const userDatasets = await getUserDatasets({username});
+
+      console.log("User datasets:", userDatasets);
       
       // Transform to our Dataset type
       const formattedDatasets: Dataset[] = userDatasets.map(ds => ({
         id: ds.id,
-        name: ds.id,
+        name: ds.name,
         description: '', // No description from HF API function, use empty string
         fileCount: 1, // Set default since we don't have this info
         size: '0 Bytes', // Set default since we don't have this info
@@ -121,13 +130,11 @@ export default function DatasetsPage() {
       
       // 1. Create the dataset repository on Hugging Face
       const createResult = await createDatasetRepo({
-        name: repoName,
+        name: datasetId,
         options: {
           description: formData.description,
           private: false,
-          tags: [COLLECTION_NAME]
-        },
-        token: hfToken
+        }
       });
       
       if (!createResult) {
@@ -136,21 +143,19 @@ export default function DatasetsPage() {
 
       // 2. Tag it as a TrainChimp dataset
       await createDatasetCard({
-        repoId: datasetId,
+        repoId: createResult.id,
         cardData: {
           tags: [COLLECTION_NAME],
           dataset_description: formData.description
-        },
-        token: hfToken
+        }
       });
       
       // 3. Upload the files to the dataset
       for (const file of files) {
         const uploadSuccess = await uploadFileToDataset({
-          repoId: datasetId,
+          repoId: createResult.id,
           filePath: file.name,
           fileContent: file,
-          token: hfToken
         });
         
         if (!uploadSuccess) {
@@ -174,7 +179,7 @@ export default function DatasetsPage() {
     }
   };
   
-  const handleDeleteDataset = async (datasetId: string) => {
+  const handleDeleteDataset = async (name: string) => {
     if (!confirm("Are you sure you want to delete this dataset? This action cannot be undone.")) {
       return;
     }
@@ -184,7 +189,7 @@ export default function DatasetsPage() {
       
       // Delete the dataset using our utility function
       const deleteSuccess = await deleteDatasetRepo({
-        repoId: datasetId
+        name: name
       });
       
       if (!deleteSuccess) {
@@ -200,16 +205,6 @@ export default function DatasetsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-  
-  const handleViewDataset = async (datasetUrl: string) => {
-    if (!datasetUrl) {
-      alert("Dataset URL not available");
-      return;
-    }
-    
-    // Simply open the Hugging Face dataset URL
-    window.open(datasetUrl, '_blank');
   };
   
   return (
@@ -289,17 +284,18 @@ export default function DatasetsPage() {
                     {dataset.createdAt.toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <button 
-                      onClick={() => handleViewDataset(dataset.datasetUrl)}
+                    <Link 
+                      href={`https://huggingface.co/datasets/${dataset.name}`}
+                      target="_blank"
                       className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3"
                     >
                       View
-                    </button>
+                    </Link>
                     <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">
                       Use
                     </button>
                     <button 
-                      onClick={() => handleDeleteDataset(dataset.id)}
+                      onClick={() => handleDeleteDataset(dataset.name)}
                       className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
                     >
                       Delete

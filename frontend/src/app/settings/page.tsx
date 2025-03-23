@@ -12,9 +12,9 @@ export default function SettingsPage() {
 
   // Load saved tokens on component mount
   useEffect(() => {
-    const savedHfToken = localStorage.getItem("hfToken") || "";
-    const savedRunpodToken = localStorage.getItem("runpodToken") || "";
-    const savedTogetherAiToken = localStorage.getItem("togetherAiToken") || "";
+    const savedHfToken = process.env.NEXT_PUBLIC_HF_TOKEN || "";
+    const savedRunpodToken = process.env.NEXT_PUBLIC_RUNPOD_API_KEY || "";
+    const savedTogetherAiToken = process.env.NEXT_PUBLIC_TOGETHER_API_KEY || "";
     
     setHfToken(savedHfToken);
     setRunpodToken(savedRunpodToken);
@@ -25,16 +25,10 @@ export default function SettingsPage() {
     e.preventDefault();
     setIsSaving(true);
     setSaveSuccess(false);
+
     
-    try {
-      // Store tokens in localStorage
-      localStorage.setItem("hfToken", hfToken);
-      localStorage.setItem("runpodToken", runpodToken);
-      localStorage.setItem("togetherAiToken", togetherAiToken);
-      
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+    
+    try { 
       setSaveSuccess(true);
       
       // Reset success message after 3 seconds
@@ -68,7 +62,7 @@ export default function SettingsPage() {
                   Hugging Face Token
                 </label>
                 <input
-                  type="password"
+                  type="text"
                   id="hf-token"
                   value={hfToken}
                   onChange={(e) => setHfToken(e.target.value)}
@@ -85,7 +79,7 @@ export default function SettingsPage() {
                   RunPod API Key
                 </label>
                 <input
-                  type="password"
+                  type="text"
                   id="runpod-token"
                   value={runpodToken}
                   onChange={(e) => setRunpodToken(e.target.value)}
@@ -102,7 +96,7 @@ export default function SettingsPage() {
                   Together AI API Key
                 </label>
                 <input
-                  type="password"
+                  type="text"
                   id="together-token"
                   value={togetherAiToken}
                   onChange={(e) => setTogetherAiToken(e.target.value)}

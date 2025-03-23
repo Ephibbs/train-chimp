@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { 
   getUserModels, 
@@ -59,17 +60,21 @@ export default function FinetunesPage() {
       
       // Get the username from the token
       const username = await getHFUsername() as string;
+
+      console.log("Username:", username);
       
       // Use the getUserModels function from hf.ts
       const userModels = await getUserModels({username});
+
+      console.log("User models:", userModels);
       
       // Transform to our FineTune type
       // Filter models tagged with TrainChimp
       const formattedData = userModels
-        .filter(model => model.tags.includes(COLLECTION_NAME))
+        // .filter(model => model.tags.includes(COLLECTION_NAME))
         .map(item => ({
           id: item.id,
-          name: item.modelId,
+          name: item.name,
           baseModel: item.tags.find(tag => tag.startsWith('base-model:'))?.replace('base-model:', '') || 'Unknown',
           status: getModelStatus(item),
           createdAt: new Date(),  // Use current date as fallback
@@ -99,11 +104,13 @@ export default function FinetunesPage() {
       
       // Use the getUserDatasets function from hf.ts
       const userDatasets = await getUserDatasets({username});
+
+      console.log("User datasets:", userDatasets);
       
       // Transform to the format we need
       const datasetsList = userDatasets.map(dataset => ({
         id: dataset.id,
-        name: dataset.id.split('/').pop() || dataset.id
+        name: dataset.name
       }));
       
       setDatasets(datasetsList);
@@ -428,9 +435,9 @@ export default function FinetunesPage() {
                     {finetune.createdAt.toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">
+                    <Link href={`https://huggingface.co/${finetune.name}`} target="_blank" className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">
                       View
-                    </button>
+                    </Link>
                     {finetune.status === "completed" && (
                       <button 
                         className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
