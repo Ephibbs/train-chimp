@@ -1,14 +1,15 @@
 # 🐵 TrainChimp: The No-Code AI Fine-Tuning Tool
 
-TrainChimp is an open-source local tool designed to streamline your entire generative AI lifecycle, from fine-tuning to scalable inference in a no-code way.
+TrainChimp is an open-source tool designed to streamline your entire generative AI lifecycle, from fine-tuning to scalable inference in a no-code way. This tool is built for private usage only.
 
 ## 📌 Overview of TrainChimp
 
 TrainChimp provides a unified, user-friendly interface to:
-- Launch no-code fine-tuning jobs for language models automatically using any available hardware accelerations (flash attention, fused kernels, etc) on remote GPUs.
+- Launch no-code fine-tuning jobs for language models automatically using any available hardware accelerations (flash attention, fused kernels, etc) on remote GPUs
+- Automatically start and stop GPUs when done training
 - Handle private datasets as well as public huggingface datasets
-- Efficiently utilize LoRA (Low-Rank Adaptation) techniques for resource-efficient fine-tuning
-- Manage analytics with Weights & Biases (wandb)
+- Efficiently utilize LoRA techniques for resource-efficient fine-tuning
+- Manage analytics with Weights & Biases
 - Deploy and track deployed models:
   - LoRA serverless inference on Together.ai
   - Full model serverless inference on RunPod
@@ -47,16 +48,16 @@ Supported models:
 - RunPod for fine-tuning that automatically starts and stops when idle, serverless inference
 - Together.ai for serverless lora inference
 
-## Fun Implementation Detail
+## Fun Design Detail
 
-Absolutely nothing is stored locally! I make use of huggingface's unlimited free public repo hosting to store all training artifacts and reuse their model card tagging system to keep track of metadata on all fine-tuning runs. This means you can delete the TrainChimp folder and start fresh or maintain multiple copies on separate machines without losing any of your fine-tuning history or active jobs!
+Absolutely no data is stored locally! I make use of huggingface's unlimited free public repo hosting to store all training artifacts and hack their model card tagging system to keep track of all metadata on fine-tuning runs. This means you can delete the TrainChimp folder or maintain multiple copies on separate machines without losing or interfering with any of your fine-tuning history or active jobs!
 
 ## Future plans
-- More model types (e.g. Diffusion, TTS, etc.)
-- Add fine-tuning analytics & real-time monitoring with Weights & Biases
-- Automatic evaluations on popular benchmarks (MMLU, HumanEval, etc.), create your own custom benchmarks
 - Multi-GPU support
-- More GPU providers (AWS, Lambda, Azure, etc.)
+- Add fine-tuning analytics & real-time monitoring with Weights & Biases
+- More GPU providers (AWS, Lambda, Azure, Google Cloud, others?)
+- More model types (e.g. Diffusion, TTS, etc.)
+- Automatic evaluations on popular benchmarks (MMLU, HumanEval, etc.), create your own custom benchmarks?
 
 ## ⚠️ Warning
 
@@ -64,4 +65,4 @@ Only run this tool locally! Deploying this tool on a public server will expose y
 
 ## Help build TrainChimp!
 
-I'm looking for contributors to help build TrainChimp! If you're interested in contributing, please reach out on [LinkedIn](https://www.linkedin.com/in/evan-phibbs/) or [X](https://x.com/builtbyevan).
+I'm looking for contributors to help build TrainChimp! If you're interested in contributing, please reach out on [LinkedIn](https://www.linkedin.com/in/evan-phibbs/) or [X](https://x.com/builtbyevan) or just email me at evan.phibbs@gmail.com.

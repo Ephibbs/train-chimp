@@ -13,6 +13,7 @@ interface HFModel {
 
 interface HFDataset {
   id: string;
+  name: string;
   author: string;
   tags: string[];
   downloads: number;
@@ -73,7 +74,12 @@ interface UploadFileToDatasetParams {
 }
 
 interface DeleteDatasetRepoParams {
-  repoId: string;
+  name: string;
+  token?: string;
+}
+
+interface DeleteModelRepoParams {
+  name: string;
   token?: string;
 }
 
@@ -127,6 +133,14 @@ interface GetModelCardParams {
   token?: string;
 }
 
+interface ListModelsParams {
+  search?: string;
+  author?: string;
+  limit?: number;
+  sort?: 'lastModified' | 'downloads' | 'likes';
+  token?: string;
+}
+
 // Collection name for app
 export const COLLECTION_NAME = "TrainChimp";
 
@@ -169,11 +183,10 @@ export async function getUserModels({
     const options = accessToken ? { accessToken } : undefined;
     const models: HFModel[] = [];
     
-    for await (const model of hub.listModels({ 
-      search: { owner: username },
+    for await (const model of await listModels({ 
+      author: username,
       ...options
     })) {
-      console.log("Model:", model);
       models.push({
         id: model.id,
         name: model.name,
@@ -438,7 +451,38 @@ export async function deleteDatasetRepo({
     
     return true;
   } catch (error) {
-    console.error(`Error deleting dataset ${repoId}:`, error);
+    console.error(`Error deleting dataset ${name}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Delete a model repository
+ * @param params Object containing repoId and optional token
+ * @returns Success status
+ */
+export async function deleteModelRepo({
+  name,
+  token
+}: DeleteModelRepoParams): Promise<boolean> {
+  try {
+    const accessToken = token || hfToken;
+    if (!accessToken) {
+      console.error("No Hugging Face token provided");
+      return false;
+    }
+    
+    await hub.deleteRepo({
+      repo: {
+        type: "model",
+        name: name
+      },
+      accessToken
+    });
+    
+    return true;
+  } catch (error) {
+    console.error(`Error deleting model ${name}:`, error);
     return false;
   }
 }
@@ -462,6 +506,8 @@ export async function createModelCard({
     
     // Generate README.md content for model card
     const cardContent = generateModelCardContent(cardData);
+
+    console.log("Card content:", cardContent);
     
     // Upload README.md to the repository
     await hub.uploadFiles({
@@ -549,7 +595,6 @@ export async function updateModelCard({
   }
 }
 
-
 /**
  * Create and push a dataset card with tags
  * @param params Object containing repoId, cardData and optional token
@@ -566,10 +611,12 @@ export async function createDatasetCard({
       console.error("No Hugging Face token provided");
       return false;
     }
-    
+    console.log("Creating dataset card for", repoId);
     // Generate README.md content for dataset card
     const cardContent = generateDatasetCardContent(cardData);
     
+    console.log("Card content:", cardContent);
+    console.log("Uploading to", repoId);
     // Upload README.md to the repository
     await hub.uploadFiles({
       repo: {
@@ -585,6 +632,7 @@ export async function createDatasetCard({
       accessToken
     });
     
+    console.log("Uploaded to", repoId);
     return true;
   } catch (error) {
     console.error(`Error creating dataset card for ${repoId}:`, error);
@@ -636,13 +684,13 @@ function generateModelCardContent(cardData: ModelCardData): string {
   const { model_description, language, license, library_name, tags, datasets, base_model, trainParams } = cardData;
   
   const content = `---
-language: ${language || "en"}
-license: ${license || "mit"}
-library_name: ${library_name || ""}
+${language ? `language: ${language}` : ''}
+${license ? `license: ${license}` : ''}
+${library_name ? `library_name: ${library_name}` : ''}
 ${datasets && datasets.length > 0 ? `datasets:\n${datasets.map(dataset => `- ${dataset}`).join('\n')}` : ''}
 ${base_model ? `base_model: ${base_model}` : ''}
 ${tags && tags.length > 0 ? `tags:\n${tags.map(tag => `- ${tag}`).join('\n')}` : ''}
-${trainParams ? `train_params:\n${Object.entries(trainParams).map(([key, value]) => `${key}: ${value}`).join('\n')}` : ''}
+${trainParams ? `train_params:\n${Object.entries(trainParams).map(([key, value]) => `  ${key}: ${value}`).join('\n')}` : ''}
 ---
 
 # Model Card
@@ -782,5 +830,56 @@ export function parseModelCard(cardText: string): ModelCardData {
     console.error('Error parsing model card:', error);
     // Return at least an empty tags array if parsing fails
     return { tags: [] };
+  }
+}
+
+/**
+ * List models directly using the Hugging Face API
+ * @param params Object containing search parameters and optional token
+ * @returns Array of models matching the search criteria
+ */
+export async function listModels({
+  search = '',
+  author = '',
+  limit = 20,
+  sort = 'lastModified',
+  token
+}: ListModelsParams): Promise<HFModel[]> {
+  try {
+    const accessToken = token || hfToken;
+    
+    // Build the query parameters
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (author) params.append('author', author);
+    params.append('limit', limit.toString());
+    params.append('sort', sort);
+    
+    // Make the API request
+    const response = await fetch(`https://huggingface.co/api/models?${params.toString()}`, {
+      headers: accessToken ? {
+        Authorization: `Bearer ${accessToken}`
+      } : {}
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Format the response to match our HFModel interface
+    return data.map((model: any) => ({
+      id: model.id,
+      name: model.modelId,
+      author: model.author || model.id.split('/')[0],
+      tags: model.tags || [],
+      downloads: model.downloads || 0,
+      likes: model.likes || 0,
+      lastModified: model.lastModified || new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error(`Error listing models:`, error);
+    return [];
   }
 }

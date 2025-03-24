@@ -1,6 +1,5 @@
 import axios from 'axios';
-import { updateModelCard } from '../hf';
-import { getModelCard } from '../hf';
+import { updateModelCard, getModelCard } from '../hf';
 
 /**
  * Starts a RunPod GPU instance based on base model and required GPU memory
@@ -10,8 +9,9 @@ import { getModelCard } from '../hf';
  * @returns Information about the launched pod
  */
 export async function startGpuInstance(
-  baseModel: string,
-  requiredGpuMemoryGB: number
+  model_id: string,
+  requiredGpuMemoryGB: number,
+  token?: string
 ): Promise<{
   podId: string;
   instanceType: string;
@@ -19,31 +19,37 @@ export async function startGpuInstance(
   status: string;
 }> {
   // Create RunPod API client
-  const apiKey = process.env.RUNPOD_API_KEY || '';
+  const apiKey = process.env.NEXT_PUBLIC_RUNPOD_API_KEY || token || '';
   const apiClient = axios.create({
-    baseURL: 'https://api.runpod.io/v1',
+    baseURL: 'https://rest.runpod.io/v1',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     }
   });
+  
+  console.log("Created RunPod API client");
 
   // Select GPU type based on required GPU memory
   const gpuType = selectGpuType(requiredGpuMemoryGB);
 
-  // Environment variables to pass to the container
-  const envVariables = [
-    { key: 'HF_TOKEN', value: process.env.HF_TOKEN },
-    { key: 'WANDB_API_KEY', value: process.env.WANDB_API_KEY },
-    { key: 'MODEL_NAME', value: baseModel },
-    { key: 'GITHUB_COMMIT', value: process.env.GITHUB_COMMIT || 'main' },
-  ];
+  console.log("Selected GPU type:", gpuType);
 
-  const startupCommands = generateStartupCommands(baseModel);
+  // Environment variables to pass to the container
+  const envVariables = { 
+    'HF_TOKEN': process.env.NEXT_PUBLIC_HF_TOKEN,
+    'WANDB_API_KEY': process.env.NEXT_PUBLIC_WANDB_API_KEY,
+    'MODEL_NAME': model_id,
+    'GITHUB_COMMIT': process.env.NEXT_PUBLIC_GITHUB_COMMIT || 'main' 
+  };
+
+  const startupCommands = generateStartupCommands(model_id);
+
+  console.log("Generated startup commands");
 
   // Configure pod launch parameters according to RunPod API docs
   const params = {
-    name: `TrainChimp-${baseModel}-${Date.now()}`,
+    name: `TrainChimp-${model_id}-${Date.now()}`,
     imageName: 'runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04',
     gpuCount: 1,
     gpuTypeIds: [gpuType], // Using gpuTypeId as per API docs
@@ -55,15 +61,19 @@ export async function startGpuInstance(
     dockerStartCmd: startupCommands,
     ports: ['22/tcp', '8888/tcp', '3000/tcp'],
     volumeMountPath: '/workspace',
-    cloudType: 'COMMUNITY', // Use COMMUNITY or SECURE
+    cloudType: 'SECURE', // Use COMMUNITY or SECURE
   };
+
+  console.log("Launching pod with params:", params);
 
   try {
     // Launch the pod
     const response = await apiClient.post('/pods', params);
     const data = response.data;
 
-    if (!data.success || !data.id) {
+    console.log("Launched pod", data);
+
+    if (!data.id) {
       throw new Error(`Failed to launch RunPod instance: ${data.error || 'Unknown error'}`);
     }
 
@@ -81,6 +91,8 @@ export async function startGpuInstance(
       
       const statusResponse = await apiClient.get(`/pods/${podId}`);
       const podData = statusResponse.data;
+
+      console.log("Pod data:", podData);
       
       if (podData.success && podData.pod) {
         podStatus = podData.pod.status;
@@ -100,16 +112,16 @@ export async function startGpuInstance(
     console.log(`Pod ${podId} launched successfully`);
 
     // Get Model card from Hugging Face
-    const modelCard = await getModelCard({ repoId: baseModel });
+    const modelCard = await getModelCard({ repoId: model_id });
     if (!modelCard) {
         throw new Error('Model card not found');
     }
-    modelCard.tags = modelCard.tags.filter(tag => tag !== 'status:queued');
-    modelCard.status = 'provisioning';
+    modelCard.tags = modelCard.tags.filter(tag => !tag.startsWith('status:'));
+    modelCard.tags.push('status:provisioning');
     // Update the model card with the pod information
-    await updateModelCard({ repoId: baseModel, cardData: modelCard });
+    await updateModelCard({ repoId: model_id, cardData: modelCard });
     
-    console.log(`Updated job ${baseModel} status in Supabase`);
+    console.log(`Updated job ${model_id} status in Supabase`);
     return {
       podId: podId,
       instanceType: gpuType,
@@ -185,23 +197,44 @@ function generateStartupCommands(baseModel: string): string[] {
     `
     # Set error handling
     set -e
+
+    # Cleanup function to terminate the pod
+    cleanup() {
+      echo "Cleaning up and terminating pod..." >> /workspace/setup.log
+      runpodctl remove pod $RUNPOD_POD_ID
+      exit $1
+    }
+
+    # Set trap to call cleanup on error
+    trap 'cleanup 1' ERR
     
     echo "Setting up pod for ${baseModel}" > /workspace/setup.log
     cd /workspace
     
-    # Clone the TrainChimp repository
-    git clone https://github.com/ephibbs/trainchimp.git
-    cd trainchimp
+    # Create directory structure
+    mkdir -p trainchimp/runpod
+    cd trainchimp/runpod
+    
+    # Download required scripts directly without git clone
+    echo "Downloading training scripts..." >> /workspace/setup.log
+    curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/finetuning_service.py
+    curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/requirements.txt
     
     # Create config file for this model
-    echo '{
-      "base_model": "${baseModel}",
-    }' > config.json
+        echo '{
+        "base_model": "${baseModel}",
+        }' > config.json
     
+    # Install dependencies
+    pip install -r requirements.txt
+
     # Start the training process
-    ./backend/runpod/launch_finetuning.sh
+    python finetuning_service.py
     
     echo "Setup complete!" >> /workspace/setup.log
+
+    # Call cleanup when training is finished successfully
+    cleanup 0
     `
   ];
 

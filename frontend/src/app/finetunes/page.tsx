@@ -6,21 +6,19 @@ import { Plus } from "lucide-react";
 import { 
   getUserModels, 
   getUserDatasets, 
-  createModelRepo, 
   createDatasetRepo,
   uploadFileToDataset,
   COLLECTION_NAME,
   getHFUsername,
   createDatasetCard,
-  createModelCard
+  deleteModelRepo
 } from "@/lib/hf";
-import { startGpuInstance } from "@/lib/runpod/startup";
 
 type FineTune = {
   id: string;
   name: string;
   baseModel: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "provisioning";
   createdAt: Date;
   updatedAt: Date;
 };
@@ -30,7 +28,6 @@ export default function FinetunesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTune | null>(null);
-  const [deploymentType, setDeploymentType] = useState<string | null>(null);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [datasetOption, setDatasetOption] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -62,6 +59,11 @@ export default function FinetunesPage() {
       const username = await getHFUsername() as string;
 
       console.log("Username:", username);
+
+      if (!username) {
+        console.error("Username not found");
+        return;
+      }
       
       // Use the getUserModels function from hf.ts
       const userModels = await getUserModels({username});
@@ -72,14 +74,18 @@ export default function FinetunesPage() {
       // Filter models tagged with TrainChimp
       const formattedData = userModels
         // .filter(model => model.tags.includes(COLLECTION_NAME))
-        .map(item => ({
-          id: item.id,
-          name: item.name,
-          baseModel: item.tags.find(tag => tag.startsWith('base-model:'))?.replace('base-model:', '') || 'Unknown',
-          status: getModelStatus(item),
-          createdAt: new Date(),  // Use current date as fallback
-          updatedAt: new Date(item.lastModified)
-        }));
+        .map(item => {
+          const models = item.tags.find(tag => tag.startsWith('base_model:'))
+          const baseModel = models?.replace('base_model:', '') || 'Unknown';
+          return {
+            id: item.id,
+            name: item.name,
+            baseModel: baseModel,
+            status: getModelStatus(item),
+            createdAt: new Date(),  // Use current date as fallback
+            updatedAt: new Date(item.lastModified)
+          }
+        });
       
       setFinetunes(formattedData);
     } catch (error) {
@@ -90,10 +96,12 @@ export default function FinetunesPage() {
   };
   
   // Helper function to determine model status based on model tags
-  const getModelStatus = (model: { tags: string[] }): "queued" | "running" | "completed" | "failed" => {
+  const getModelStatus = (model: { tags: string[] }): "queued" | "running" | "completed" | "failed" | "provisioning" => {
     if (model.tags.includes('status:failed')) return "failed";
+    if (model.tags.includes('status:provisioning')) return "provisioning";
     if (model.tags.includes('status:running')) return "running";
     if (model.tags.includes('status:queued')) return "queued";
+    if (model.tags.includes('status:completed')) return "completed";
     return "completed"; // Default to completed if the model exists without status tags
   };
   
@@ -223,59 +231,35 @@ export default function FinetunesPage() {
         throw new Error("Please fill out all required fields");
       }
       
-      // Get HF token
+      // Get HF token for authorization header
       const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
       
       if (!hfToken) {
         throw new Error("Hugging Face token not found");
       }
       
-      // Create repository name for the fine-tuned model
-      const repoName = name
-        .trim()
-        .toLowerCase()
-        .replace(/[^\w-]/g, '-')
-        .replace(/-+/g, '-');
-
-      const username = await getHFUsername() as string;
-      const modelId = `${username}/${repoName}`;
-      
-      // Create model repository on Hugging Face
-      const createResult = await createModelRepo({
-        name: modelId,
-        options: {
-          description: `Fine-tuned model: ${name}`,
-          private: false,
+      // Call the API endpoint
+      const response = await fetch('/api/finetunes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${hfToken}`
         },
-        token: hfToken
-      });
-
-      await createModelCard({
-        repoId: modelId,
-        cardData: {
-          base_model: baseModel,
-          datasets: [datasetId],
-          tags: [
-            COLLECTION_NAME
-          ],
-          status: 'queued',
-          queued_at: new Date().toISOString(),
-          model_description: `Fine-tuned model: ${name}`,
-          trainParams: {
-            epochs: epochs,
-            learning_rate: 0.0001,
-            batch_size: 16,
-            max_length: 1024
-          }
-        }
+        body: JSON.stringify({
+          name,
+          baseModel,
+          datasetId,
+          epochs
+        })
       });
       
-      if (!createResult) {
-        throw new Error("Failed to create model repository");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create fine-tune');
       }
-
-      const gpuInstance = await startGpuInstance(modelId, 16);
-      console.log(gpuInstance);
+      
+      const result = await response.json();
+      console.log('Fine-tune created:', result);
 
       // Close modal and refresh finetunes list
       setIsModalOpen(false);
@@ -361,6 +345,35 @@ export default function FinetunesPage() {
     }
   };
   
+  // Handle model deletion
+  const handleDeleteModel = async (modelId: string) => {
+    if (!confirm("Are you sure you want to delete this model? This action cannot be undone.")) {
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      
+      // Delete the model using our utility function
+      const deleteSuccess = await deleteModelRepo({
+        name: modelId
+      });
+      
+      if (!deleteSuccess) {
+        throw new Error("Failed to delete model");
+      }
+      
+      // Update the UI
+      setFinetunes(prev => prev.filter(model => model.name !== modelId));
+      
+    } catch (error) {
+      console.error("Error deleting model:", error);
+      alert("Failed to delete model. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -440,12 +453,18 @@ export default function FinetunesPage() {
                     </Link>
                     {finetune.status === "completed" && (
                       <button 
-                        className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
+                        className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 mr-3"
                         onClick={() => handleDeployClick(finetune)}
                       >
                         Deploy
                       </button>
                     )}
+                    <button 
+                      onClick={() => handleDeleteModel(finetune.name)}
+                      className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -667,7 +686,7 @@ export default function FinetunesPage() {
                   className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
                 >
                   <div className="font-medium">RunPod Serverless</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod's serverless platform</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod&apos;s serverless platform</div>
                 </button>
                 
                 <button

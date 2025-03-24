@@ -25,8 +25,10 @@ from huggingface_hub import (
     login,
     model_info,
     metadata_update,
+    hf_hub_download,
     ModelCard,
-    ModelCardData
+    ModelCardData,
+    RepoCard
 )
 
 
@@ -39,6 +41,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling
 )
+from trl import SFTTrainer, SFTConfig
 from peft import (
     get_peft_model,
     LoraConfig, 
@@ -65,7 +68,6 @@ class FineTuningService:
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(os.path.join(self.data_dir, "datasets"), exist_ok=True)
         os.makedirs(os.path.join(self.data_dir, "models"), exist_ok=True)
-        os.makedirs(os.path.join(self.data_dir, "artifacts"), exist_ok=True)
         
         # Models and tokenizers will be loaded as needed
         self.model = None
@@ -83,7 +85,8 @@ class FineTuningService:
         if self.tokenizer is None:
             logger.info(f"Loading tokenizer for {base_model_type}")
             self.tokenizer = AutoTokenizer.from_pretrained(base_model_type)
-        
+            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            
         # Load model in 4-bit to save memory
         model = AutoModelForCausalLM.from_pretrained(
             base_model_type,
@@ -105,19 +108,18 @@ class FineTuningService:
             del self.model
             torch.cuda.empty_cache()
     
-    def process_dataset(self, dataset_path, base_model_type, instruction_template=None):
+    def process_dataset(self, dataset_path, base_model_type, instruction_template=None, max_length=512):
         """Process the dataset for training"""
         logger.info(f"Processing dataset: {dataset_path}")
-        
-        # Ensure tokenizer is loaded
-        if self.tokenizer is None:
-            logger.info(f"Loading tokenizer for {base_model_type}")
-            self.tokenizer = AutoTokenizer.from_pretrained(base_model_type)
         
         tokenizer = self.tokenizer
         
         # Load dataset
         dataset = load_dataset('json', data_files=dataset_path)
+        
+        print(f"Dataset: {dataset}")
+        print(f"Dataset keys: {dataset.keys()}")
+        print(f"Dataset first item: {dataset['train'][0]}")
         
         # Apply tokenization
         def tokenize_function(examples):
@@ -136,7 +138,7 @@ class FineTuningService:
                 texts, 
                 truncation=True, 
                 padding="max_length",
-                max_length=512
+                max_length=max_length
             )
         
         # Tokenize the dataset
@@ -154,7 +156,7 @@ class FineTuningService:
         logger.info(f"Uploading model to Hugging Face Hub: {commit_message}")
         
         # Save model artifacts
-        artifact_dir = os.path.join(self.data_dir, "artifacts", model_id)
+        artifact_dir = os.path.join(self.data_dir, "models", model_id, "final")
         
         # Upload the complete model to HF Hub
         upload_folder(
@@ -166,22 +168,23 @@ class FineTuningService:
         logger.info(f"Model artifacts saved to {artifact_dir}")
         return True
     
-    def fine_tune(self, model_id):
+    def run(self, model_id):
         """Fine-tune the model with LoRA based on job specifications"""
         logger.info(f"Starting fine-tuning for model: {model_id}")
         
         # Get model metadata from Hugging Face Hub
         try:
-            hf_api = HfApi()
-            model_info = hf_api.model_info(model_id)
-            model_metadata = model_info.cardData if hasattr(model_info, 'cardData') else {}
+            print(f"Getting model info for {model_id}")
+            card = ModelCard.load(model_id)
+            print(f"Model info: {card.data}")
+            model_metadata = card.data if hasattr(card, 'data') else {}
             
             if not model_metadata:
                 logger.error(f"No metadata found for model {model_id}")
                 return False
             
             # Extract training information from model metadata
-            dataset_id = model_metadata.get("datasets")
+            dataset_id = model_metadata.get("datasets")[0]
             base_model = model_metadata.get("base_model")
             training_params = model_metadata.get("trainParams", {})
             
@@ -189,18 +192,25 @@ class FineTuningService:
                 logger.error(f"Missing required metadata for model {model_id}")
                 return False
             
+            print(f"Updating model status to running for {model_id}")
             # Update model status in HF Hub
-            metadata_update(model_id, {"status": "running", "started_at": datetime.now().isoformat()}, overwrite=True)
+            if card.data.tags:
+                card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
+            else:
+                card.data.tags = []
+            card.data.tags.append("status:running")
+            card.data.tags.append("started_at:" + datetime.now().isoformat())
+            card.push_to_hub(model_id)
             
+            print(f"Downloading dataset for {dataset_id}")
             # Download dataset from HF Hub
-            dataset_path = os.path.join(self.data_dir, "datasets", f"{dataset_id}.jsonl")
-            hf_api.download_file(
+            dataset_path = hf_hub_download(
                 repo_id=dataset_id,
                 filename="data.jsonl",
-                local_dir=os.path.dirname(dataset_path),
-                local_filename=os.path.basename(dataset_path)
+                repo_type="dataset"
             )
             
+            print(f"Loading base model for {model_id}")
             # Load base model if not already loaded
             if self.model is None:
                 self.load_base_model(base_model)
@@ -208,8 +218,10 @@ class FineTuningService:
             model = self.model
             tokenizer = self.tokenizer
             
+            print(f"Processing dataset for {model_id}")
             # Process dataset
-            train_dataset = self.process_dataset(dataset_path, base_model)
+            train_dataset = load_dataset('json', data_files=dataset_path)
+            # train_dataset = self.process_dataset(dataset_path, base_model, max_length=training_params.get("max_length", 512))
             
             # Configure LoRA
             lora_config = LoraConfig(
@@ -226,9 +238,9 @@ class FineTuningService:
             
             # Setup training arguments
             output_dir = os.path.join(self.data_dir, "models", model_id)
-            training_args = TrainingArguments(
+            training_args = SFTConfig(
                 output_dir=output_dir,
-                num_train_epochs=training_params.get("epochs", 3),
+                num_train_epochs=training_params.get("epochs", 1),
                 per_device_train_batch_size=training_params.get("batch_size", 8),
                 gradient_accumulation_steps=4,
                 learning_rate=training_params.get("learning_rate", 2e-5),
@@ -240,17 +252,17 @@ class FineTuningService:
             )
             
             # Setup data collator
-            data_collator = DataCollatorForLanguageModeling(
-                tokenizer=tokenizer, 
-                mlm=False
-            )
+            # data_collator = DataCollatorForLanguageModeling(
+            #     tokenizer=tokenizer, 
+            #     mlm=False
+            # )
             
             # Initialize trainer
-            trainer = Trainer(
+            trainer = SFTTrainer(
                 model=peft_model,
+                train_dataset=train_dataset["train"],
                 args=training_args,
-                train_dataset=train_dataset,
-                data_collator=data_collator,
+                # data_collator=data_collator,
             )
             
             # Start training
@@ -258,30 +270,34 @@ class FineTuningService:
             trainer.train()
             
             # Save the trained model
-            peft_model.save_pretrained(output_dir)
+            final_dir = os.path.join(output_dir, "final")
+            peft_model.save_pretrained(final_dir)
             
-            # Upload the model to Hugging Face Hub
-            self.upload_model(model_id, progress="final")
+            # Remove the automatically generated README.md file if it exists
+            readme_path = os.path.join(final_dir, "README.md")
+            if os.path.exists(readme_path):
+                logger.info(f"Removing auto-generated README.md from {final_dir}")
+                try:
+                    os.remove(readme_path)
+                except Exception as e:
+                    logger.warning(f"Failed to remove README.md: {e}")
             
-            # Upload the adapter to Hugging Face Hub
-            adapter_repo = f"{model_id}-adapter"
-            try:
-                create_repo(adapter_repo, private=True, exist_ok=True)
-            except Exception as e:
-                logger.warning(f"Error creating repo, might already exist: {e}")
-                
+            # Upload the model to Hugging Face Hub  
             upload_folder(
-                folder_path=output_dir,
-                repo_id=adapter_repo,
-                commit_message=f"Upload adapter for {model_id}"
+                folder_path=final_dir,
+                repo_id=model_id,
+                commit_message=f"Upload final model for {model_id}"
             )
             
             # Update model metadata
-            metadata_update(model_id, {
-                "status": "completed",
-                "completed_at": datetime.now().isoformat(),
-            }, overwrite=True)
-            
+            # Remove any existing status tags
+            if card.data.tags:
+                card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
+            else:
+                card.data.tags = []
+            card.data.tags.append("status:completed")
+            card.data.tags.append("completed_at:" + datetime.now().isoformat())
+            card.push_to_hub(model_id)
             logger.info(f"Fine-tuning completed for model {model_id}")
             return True
             
@@ -289,90 +305,20 @@ class FineTuningService:
             logger.error(f"Error during fine-tuning: {e}", exc_info=True)
             
             # Update model status
-            metadata_update(model_id, {"status": "failed", "error_details": str(e), "completed_at": datetime.now().isoformat()}, overwrite=True)
+            if card.data.tags:
+                card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
+            else:
+                card.data.tags = []
+            card.data.tags.append("status:failed")
+            card.data.tags.append("error_details:" + str(e))
+            card.data.tags.append("completed_at:" + datetime.now().isoformat())
+            card.push_to_hub(model_id)
             
             return False
         finally:
             # Reset the model to free up memory
             if base_model:
                 self.reset_model(base_model)
-            
-
-    def run(self, model_id):
-        """Run the service for a specific job ID"""
-        logger.info(f"Starting fine-tuning service for model {model_id}")
-        return self.fine_tune(model_id)
-
-
-class SupabaseClient:
-    """Client for interacting with Supabase"""
-    
-    def __init__(self, url: str, key: str):
-        self.client = create_client(url, key)
-    
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Get job data from Supabase"""
-        response = self.client.table('jobs').select('*').eq('job_id', job_id).execute()
-        jobs = response.data
-        if not jobs:
-            return None
-        return jobs[0]
-    
-    def update_job_status(self, job_id: str, status: str, started_at: str = None, completed_at: str = None):
-        """Update job status in Supabase"""
-        data = {'status': status}
-        if started_at:
-            data['started_at'] = started_at
-        if completed_at:
-            data['completed_at'] = completed_at
-            
-        self.client.table('jobs').update(data).eq('job_id', job_id).execute()
-    
-    def update_model_status(self, model_id: str, status: str, lora_adapter_url: str = None):
-        """Update model status in Supabase"""
-        data = {'status': status}
-        if lora_adapter_url:
-            data['lora_adapter_url'] = lora_adapter_url
-            
-        self.client.table('models').update(data).eq('id', model_id).execute()
-    
-    def download_dataset(self, dataset_id: str, destination_dir: str) -> str:
-        """Download dataset from storage"""
-        dataset_info = self.client.table('datasets').select('*').eq('id', dataset_id).execute().data[0]
-        dataset_url = dataset_info.get('file_url')
-        
-        if not dataset_url:
-            raise ValueError(f"Dataset {dataset_id} has no file URL")
-        
-        local_path = os.path.join(destination_dir, f"{dataset_id}.jsonl")
-        
-        # Download file
-        response = requests.get(dataset_url)
-        response.raise_for_status()
-        
-        with open(local_path, 'wb') as f:
-            f.write(response.content)
-        
-        return local_path
-    
-    def upload_model(self, model_id: str, model_dir: str) -> str:
-        """Upload model files and return the URL"""
-        # Implementation will depend on storage solution
-        # This is a placeholder - actual implementation would need to zip and upload files
-        
-        # For example, upload to Supabase storage
-        bucket_name = "model-adapters"
-        file_path = os.path.join(model_dir, "adapter_model.safetensors")
-        
-        with open(file_path, 'rb') as f:
-            self.client.storage.from_(bucket_name).upload(
-                f"{model_id}/adapter_model.safetensors",
-                f.read()
-            )
-        
-        # Return URL to the uploaded model
-        return self.client.storage.from_(bucket_name).get_public_url(f"{model_id}/adapter_model.safetensors")
-
 
 def main():
     """Main entry point"""

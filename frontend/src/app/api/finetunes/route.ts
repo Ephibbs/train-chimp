@@ -1,13 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
-import { createJob, queueJob, JobParameters, JobQueueMessage } from '../../../lib/db';
+import { NextResponse } from 'next/server';
+import { 
+  createModelRepo, 
+  createModelCard, 
+  getHFUsername,
+  COLLECTION_NAME 
+} from '@/lib/hf';
+import { startGpuInstance } from '@/lib/runpod/startup';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    // Get request data
+    // Parse request body
     const body = await request.json();
     const { name, baseModel, datasetId, epochs } = body;
     
+    // Validate required fields
     if (!name || !baseModel || !datasetId || isNaN(epochs)) {
       return NextResponse.json(
         { error: "Please provide all required fields" },
@@ -15,51 +21,81 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const jobId = uuidv4();
-    const userId = 'current-user-id'; // You would get this from auth
+    // Get HF token from request headers or environment
+    const authHeader = request.headers.get('Authorization');
+    let hfToken = process.env.NEXT_PUBLIC_HF_TOKEN;
     
-    // Create finetune record in the database
-    try {
-      const jobParameters: JobParameters = { epochs };
-      await createJob(jobId, userId, name, datasetId, jobParameters);
-    } catch (err) {
-      console.error("Error creating job:", err);
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      hfToken = authHeader.substring(7);
+    } else if (!hfToken) {
       return NextResponse.json(
-        { error: "Failed to create job" },
+        { error: "Hugging Face token not found" },
+        { status: 401 }
+      );
+    }
+    
+    // Create repository name for the fine-tuned model
+    const repoName = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w-]/g, '-')
+      .replace(/-+/g, '-');
+
+    const username = await getHFUsername() as string;
+    const modelId = `${username}/${repoName}`;
+    
+    // Create model repository on Hugging Face
+    const createResult = await createModelRepo({
+      name: modelId,
+      options: {
+        description: `Fine-tuned model: ${name}`,
+        private: false,
+      },
+      token: hfToken
+    });
+
+    if (!createResult) {
+      return NextResponse.json(
+        { error: "Failed to create model repository" },
         { status: 500 }
       );
     }
     
-    // Add job to the queue
-    try {
-      const queueMessage: JobQueueMessage = {
-        job_id: jobId,
-        user_id: userId,
-        dataset_id: datasetId,
-        parameters: {
-          base_model: baseModel,
-          epochs
+    // Create model card with metadata
+    await createModelCard({
+      repoId: modelId,
+      cardData: {
+        base_model: baseModel,
+        datasets: [datasetId],
+        tags: [
+          COLLECTION_NAME,
+          `status:queued`,
+          `queued_at:${new Date().toISOString()}`
+        ],
+        model_description: `Fine-tuned model: ${name}`,
+        trainParams: {
+          epochs: epochs,
+          learning_rate: 0.0001,
+          batch_size: 16,
+          max_length: 1024
         }
-      };
-      
-      await queueJob(jobId, uuidv4(), queueMessage);
-    } catch (err) {
-      console.error("Error submitting job to queue:", err);
-      return NextResponse.json(
-        { error: "Failed to queue job" },
-        { status: 500 }
-      );
-    }
-    
-    return NextResponse.json({ 
-      success: true, 
-      jobId: jobId 
+      }
     });
     
+    // Start GPU instance for training
+    const gpuInstance = await startGpuInstance(modelId, 16);
+    
+    // Return success response with model ID and instance information
+    return NextResponse.json({
+      success: true,
+      modelId: modelId,
+      gpuInstance: gpuInstance
+    });
+
   } catch (error) {
-    console.error("Error processing request:", error);
+    console.error("Error creating fine-tune:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

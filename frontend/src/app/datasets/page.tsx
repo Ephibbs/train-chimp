@@ -136,6 +136,10 @@ export default function DatasetsPage() {
           private: false,
         }
       });
+
+      console.log("Create result:", createResult);
+      const name = createResult?.id.split('/').pop();
+      const repoId = `${username}/${name}`;
       
       if (!createResult) {
         throw new Error("Failed to create dataset repository");
@@ -143,7 +147,7 @@ export default function DatasetsPage() {
 
       // 2. Tag it as a TrainChimp dataset
       await createDatasetCard({
-        repoId: createResult.id,
+        repoId: repoId,
         cardData: {
           tags: [COLLECTION_NAME],
           dataset_description: formData.description
@@ -153,7 +157,7 @@ export default function DatasetsPage() {
       // 3. Upload the files to the dataset
       for (const file of files) {
         const uploadSuccess = await uploadFileToDataset({
-          repoId: createResult.id,
+          repoId: repoId,
           filePath: file.name,
           fileContent: file,
         });
@@ -197,7 +201,7 @@ export default function DatasetsPage() {
       }
       
       // Update the UI
-      setDatasets(prev => prev.filter(dataset => dataset.id !== datasetId));
+      setDatasets(prev => prev.filter(dataset => dataset.name !== name));
       
     } catch (error) {
       console.error("Error deleting dataset:", error);
