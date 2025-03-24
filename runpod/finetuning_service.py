@@ -186,7 +186,7 @@ class FineTuningService:
             # Extract training information from model metadata
             dataset_id = model_metadata.get("datasets")[0]
             base_model = model_metadata.get("base_model")
-            training_params = model_metadata.get("trainParams", {})
+            training_params = model_metadata.get("train_params", {})
             
             if not dataset_id or not base_model:
                 logger.error(f"Missing required metadata for model {model_id}")

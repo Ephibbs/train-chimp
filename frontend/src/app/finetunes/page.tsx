@@ -41,20 +41,21 @@ export default function FinetunesPage() {
     fetchDatasets();
   }, []);
     
-  //   // Set up polling for models that are still processing
-  //   const pollingInterval = setInterval(() => {
-  //     const hasProcessingModels = finetunes.some(model => 
-  //       ["queued", "provisioning", "loading_model", "training"].includes(model.status)
-  //     );
+  useEffect(() => {
+    // Set up polling for models that are still processing
+    const pollingInterval = setInterval(() => {
+      const hasProcessingModels = finetunes.some(model => 
+        ["queued", "provisioning", "loading_model", "training"].includes(model.status)
+      );
       
-  //     if (hasProcessingModels) {
-  //       fetchFinetunes();
-  //     }
-  //   }, 10000); // Poll every 3 seconds
+      if (hasProcessingModels) {
+        fetchFinetunes();
+      }
+    }, 3000); // Poll every 3 seconds
     
-  //   // Clean up the interval when component unmounts
-  //   return () => clearInterval(pollingInterval);
-  // }, [finetunes]); // Add finetunes as a dependency
+    // Clean up the interval when component unmounts
+    return () => clearInterval(pollingInterval);
+  }, [finetunes]); // Add finetunes as a dependency
   
   const fetchFinetunes = async () => {
     try {
