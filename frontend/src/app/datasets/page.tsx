@@ -8,10 +8,10 @@ import {
   createDatasetRepo, 
   uploadFileToDataset, 
   deleteDatasetRepo, 
-  COLLECTION_NAME,
   getHFUsername,
   createDatasetCard
-} from "@/lib/hf";
+} from "@/app/actions/hf";
+import { COLLECTION_NAME } from "@/lib/types";
 // Import any additional dependencies as needed
 
 type Dataset = {

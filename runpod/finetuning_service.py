@@ -244,11 +244,14 @@ class FineTuningService:
                 per_device_train_batch_size=training_params.get("batch_size", 8),
                 gradient_accumulation_steps=4,
                 learning_rate=training_params.get("learning_rate", 2e-5),
-                bf16=True if torch.cuda.is_available() else False,
+                bf16=True,
                 save_strategy="epoch",
+                optim="adamw_torch_fused",
                 logging_steps=10,
                 save_total_limit=1,
                 save_safetensors=True,
+                torch_compile=True,
+                flash_attention_2=True
             )
             
             # Setup data collator

@@ -1,9 +1,12 @@
+'use server'
+
 import * as hub from '@huggingface/hub';
+import { FineTuneHFModel } from '@/lib/types';
 
 // Interface definitions for HF data
 interface HFModel {
   id: string;
-  name: string;
+  modelId: string;
   author: string;
   tags: string[];
   downloads: number;
@@ -32,12 +35,6 @@ interface GetUserModelsParams {
 
 interface GetUserDatasetsParams {
   username?: string;
-  token?: string;
-}
-
-interface SearchModelsParams {
-  query: string;
-  limit?: number;
   token?: string;
 }
 
@@ -141,9 +138,6 @@ interface ListModelsParams {
   token?: string;
 }
 
-// Collection name for app
-export const COLLECTION_NAME = "TrainChimp";
-
 // Get the HF token from environment or storage
 const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN;
 
@@ -175,6 +169,17 @@ if (!hfUsername) {
     console.error("Hugging Face username not found");
 }
 
+// Helper function to determine model status based on model tags
+function getModelStatus(model: { tags: string[] }): FineTuneHFModel['status'] {
+  if (model.tags.includes('status:failed')) return "failed";
+  if (model.tags.includes('status:provisioning')) return "provisioning";
+  if (model.tags.includes('status:loading_model')) return "loading model";
+  if (model.tags.includes('status:training')) return "training";
+  if (model.tags.includes('status:queued')) return "queued";
+  if (model.tags.includes('status:completed')) return "completed";
+  return "completed"; // Default to completed if the model exists without status tags
+}
+
 /**
  * Get models from a specific Hugging Face user
  * @param params Object containing username and optional token
@@ -183,30 +188,34 @@ if (!hfUsername) {
 export async function getUserModels({
   username,
   token
-}: GetUserModelsParams = {}): Promise<HFModel[]> {
+}: GetUserModelsParams = {}): Promise<FineTuneHFModel[]> {
   try {
     const accessToken = token || hfToken;
-    console.log("hfUsername:", hfUsername);
     username = username || hfUsername as string;
     if (!username) {
       console.error("Username not found");
       return [];
     }
     const options = accessToken ? { accessToken } : undefined;
-    const models: HFModel[] = [];
+    const models: FineTuneHFModel[] = [];
     
     for await (const model of await listModels({ 
       author: username,
       ...options
     })) {
+      const modelTag = model.tags.find((tag: string) => tag.startsWith('base_model:'));
+      const baseModel = modelTag?.replace('base_model:', '') || 'Unknown';
+
       models.push({
         id: model.id,
         name: model.name,
         author: username,
+        status: getModelStatus(model),
+        baseModel: baseModel,
         tags: model.tags || [],
         downloads: model.downloads || 0,
         likes: model.likes || 0,
-        lastModified: model.lastModified || new Date().toISOString(),
+        updatedAt: new Date(model.lastModified)
       });
     }
     
@@ -239,61 +248,19 @@ export async function getUserDatasets({
       search: { owner: username },
       ...options
     })) {
-      console.log("Dataset:", dataset);
       datasets.push({
         id: dataset.id,
         author: username,
         name: dataset.name,
         tags: dataset.tags || [],
         downloads: dataset.downloads || 0,
-        lastModified: dataset.lastModified || new Date().toISOString(),
+        lastModified: dataset.lastModified || '',
       });
     }
     
     return datasets;
   } catch (error) {
     console.error(`Error fetching datasets for ${username}:`, error);
-    return [];
-  }
-}
-
-/**
- * Search for models on Hugging Face
- * @param params Object containing query, optional limit and token
- * @returns Array of matching models
- */
-export async function searchModels({
-  query,
-  limit = 20,
-  token
-}: SearchModelsParams): Promise<HFModel[]> {
-  try {
-    const options = token ? { accessToken: token } : undefined;
-    const models: HFModel[] = [];
-    let count = 0;
-    
-    for await (const model of hub.listModels({
-      search: { query },
-      ...options
-    })) {
-      if (count >= limit) break;
-      
-      models.push({
-        id: model.id,
-        name: model.name,
-        author: model.id.split('/')[0],
-        tags: model.tags || [],
-        downloads: model.downloads || 0,
-        likes: model.likes || 0,
-        lastModified: model.lastModified || new Date().toISOString(),
-      });
-      
-      count++;
-    }
-    
-    return models;
-  } catch (error) {
-    console.error(`Error searching for models with query "${query}":`, error);
     return [];
   }
 }
@@ -747,7 +714,7 @@ This dataset was uploaded to Hugging Face using [TrainChimp](https://trainchimp.
  * @param cardText Raw README.md content from model card
  * @returns Structured ModelCardData object
  */
-export function parseModelCard(cardText: string): ModelCardData {
+export async function parseModelCard(cardText: string): Promise<ModelCardData> {
   try {
     const modelData: ModelCardData = {
       tags: []
@@ -861,7 +828,7 @@ export async function listModels({
   limit = 20,
   sort = 'lastModified',
   token
-}: ListModelsParams): Promise<HFModel[]> {
+}: ListModelsParams): Promise<FineTuneHFModel[]> {
   try {
     const accessToken = token || hfToken;
     
@@ -886,14 +853,14 @@ export async function listModels({
     const data = await response.json();
     
     // Format the response to match our HFModel interface
-    return data.map((model: any) => ({
+    return data.map((model: HFModel) => ({
       id: model.id,
       name: model.modelId,
       author: model.author || model.id.split('/')[0],
       tags: model.tags || [],
       downloads: model.downloads || 0,
       likes: model.likes || 0,
-      lastModified: model.lastModified || new Date().toISOString(),
+      lastModified: model.lastModified || '',
     }));
   } catch (error) {
     console.error(`Error listing models:`, error);

@@ -7,25 +7,19 @@ import {
   deleteModelRepo,
   createDatasetRepo,
   uploadFileToDataset,
-  COLLECTION_NAME,
   getHFUsername,
   createDatasetCard,
-} from "@/lib/hf";
-
-type FineTune = {
-  id: string;
-  name: string;
-  baseModel: string;
-  status: "queued" | "running" | "completed" | "failed" | "provisioning" | "loading_model" | "training";
-  createdAt: Date;
-  updatedAt: Date;
-};
+  getUserDatasets,
+  getUserModels,
+} from "@/app/actions/hf";
+import { COLLECTION_NAME, FineTuneHFModel } from "@/lib/types";
+import { startFinetune } from "../actions/finetune";
 
 export default function FinetunesPage() {
-  const [finetunes, setFinetunes] = useState<FineTune[]>([]);
+  const [finetunes, setFinetunes] = useState<FineTuneHFModel[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTune | null>(null);
+  const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTuneHFModel | null>(null);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [datasetOption, setDatasetOption] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -61,31 +55,9 @@ export default function FinetunesPage() {
     try {
       setIsLoading(true);
       
-      // Call our API endpoint instead of directly using the HF library
-      const response = await fetch('/api/finetunes', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      console.log("Response:", response);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch finetunes');
-      }
-      
-      const finetunes = await response.json();
-      console.log("Finetunes from API:", finetunes);
-      
-      // Format dates for display
-      const formattedFinetunes = finetunes.map((item: { updatedAt: string }) => ({
-        ...item,
-        updatedAt: item.updatedAt ? new Date(item.updatedAt) : 'Unknown'
-      }));
+      const finetunes = await getUserModels();
       // Set the finetunes directly from the API response
-      setFinetunes(formattedFinetunes);
+      setFinetunes(finetunes);
     } catch (error) {
       console.error("Error fetching finetunes:", error);
     } finally {
@@ -96,27 +68,9 @@ export default function FinetunesPage() {
   const fetchDatasets = async () => {
     try {
       // Call our API endpoint to get datasets
-      const response = await fetch('/api/datasets', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const userDatasets = await getUserDatasets();
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch datasets');
-      }
-      
-      const userDatasets = await response.json();
-      console.log("User datasets:", userDatasets);
-      
-      // Transform to the format we need
-      const datasetsList = userDatasets.map((dataset: { id: string; name: string }) => ({
-        id: dataset.id,
-        name: dataset.name
-      }));
-      
-      setDatasets(datasetsList);
+      setDatasets(userDatasets);
     } catch (error) {
       console.error("Error fetching datasets:", error);
     }
@@ -239,27 +193,9 @@ export default function FinetunesPage() {
       }
       
       // Call the API endpoint
-      const response = await fetch('/api/finetunes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${hfToken}`
-        },
-        body: JSON.stringify({
-          name,
-          baseModel,
-          datasetId,
-          epochs
-        })
-      });
+      const job = await startFinetune(name, baseModel, datasetId, epochs);
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create fine-tune');
-      }
-      
-      const result = await response.json();
-      console.log('Fine-tune created:', result);
+      console.log('Fine-tune created:', job);
 
       // Close modal and refresh finetunes list
       setIsModalOpen(false);
@@ -274,7 +210,7 @@ export default function FinetunesPage() {
   };
   
   // Handle deployment modal open
-  const handleDeployClick = (finetune: FineTune) => {
+  const handleDeployClick = (finetune: FineTuneHFModel) => {
     setSelectedModelForDeploy(finetune);
     setIsDeployModalOpen(true);
   };
@@ -426,7 +362,7 @@ export default function FinetunesPage() {
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {finetunes.map((finetune: FineTune) => (
+              {finetunes.map((finetune: FineTuneHFModel) => (
                 <tr key={finetune.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     {finetune.name}
@@ -438,7 +374,7 @@ export default function FinetunesPage() {
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                       ${finetune.status === "completed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : 
                         finetune.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" : 
-                        finetune.status === "running" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : 
+                        finetune.status === "training" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : 
                         "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"}
                     `}>
                       {finetune.status.charAt(0).toUpperCase() + finetune.status.slice(1)}
@@ -513,6 +449,9 @@ export default function FinetunesPage() {
                   >
                     <option value="">Select a base model</option>
                     <option value="meta-llama/Llama-3.2-1B-Instruct">Llama 3.2 1B Instruct</option>
+                    <option value="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B Instruct</option>
+                    <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct</option>
+                    <option value="meta-llama/Llama-3.3-70B-Instruct">Llama 3.3 70B Instruct</option>
                   </select>
                 </div>
                 <div>

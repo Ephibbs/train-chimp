@@ -1,5 +1,6 @@
-import { getHFUsername, createModelRepo, createModelCard } from '../hf';
-import { startGpuInstance, calculateRequiredGpuMemory } from './startup';
+import { getHFUsername, createModelRepo, createModelCard } from '../../app/actions/hf';
+import { startGpuInstance } from './startup';
+import { calculateRequiredGpuMemory } from '@/lib/utils';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -17,7 +18,6 @@ async function testRunpodStartup() {
 
     // Test parameters - using a small model for testing
     const baseModel = 'meta-llama/Llama-3.2-1B-Instruct'; // Small model for testing
-    const modelParametersBillions = 1.23; // 1B parameters = 1.0B
     
     // Create repository name for the fine-tuned model
       const repoName = name
@@ -65,7 +65,7 @@ async function testRunpodStartup() {
       }
 
     // Calculate required GPU memory based on model size
-    const requiredGpuMemoryGB = calculateRequiredGpuMemory(baseModel, modelParametersBillions);
+    const requiredGpuMemoryGB = calculateRequiredGpuMemory(baseModel);
     console.log(`Estimated required GPU memory: ${requiredGpuMemoryGB}GB`);
     
     // Start the GPU instance
