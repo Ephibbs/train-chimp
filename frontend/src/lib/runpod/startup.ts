@@ -80,7 +80,7 @@ export async function startGpuInstance(
     const podId = data.id;
 
     // Poll for pod status until it's ready
-    let podStatus = 'PENDING';
+    let podStatus = data.desiredStatus;
     let publicIpAddress;
     let attempts = 0;
     const maxAttempts = 30;
@@ -94,9 +94,9 @@ export async function startGpuInstance(
 
       console.log("Pod data:", podData);
       
-      if (podData.success && podData.pod) {
-        podStatus = podData.pod.status;
-        publicIpAddress = podData.pod.publicIpAddress;
+      if (podData.desiredStatus) {
+        podStatus = podData.desiredStatus;
+        publicIpAddress = podData.publicIp;
         
         // Log the current status
         console.log(`Pod ${podId} status: ${podStatus} (attempt ${attempts + 1}/${maxAttempts})`);
@@ -111,15 +111,16 @@ export async function startGpuInstance(
 
     console.log(`Pod ${podId} launched successfully`);
 
-    // Get Model card from Hugging Face
-    const modelCard = await getModelCard({ repoId: model_id });
-    if (!modelCard) {
-        throw new Error('Model card not found');
-    }
-    modelCard.tags = modelCard.tags.filter(tag => !tag.startsWith('status:'));
-    modelCard.tags.push('status:provisioning');
-    // Update the model card with the pod information
-    await updateModelCard({ repoId: model_id, cardData: modelCard });
+    // // Get Model card from Hugging Face
+    // console.log("Getting model card for", model_id);
+    // const modelCard = await getModelCard({ repoId: model_id, token: process.env.NEXT_PUBLIC_HF_TOKEN });
+    // if (!modelCard) {
+    //     throw new Error('Model card not found');
+    // }
+    // modelCard.tags = modelCard.tags.filter(tag => !tag.startsWith('status:'));
+    // modelCard.tags.push('status:provisioning');
+    // // Update the model card with the pod information
+    // await updateModelCard({ repoId: model_id, cardData: modelCard, token: process.env.NEXT_PUBLIC_HF_TOKEN });
     
     console.log(`Updated job ${model_id} status in Supabase`);
     return {

@@ -21,19 +21,6 @@ export async function POST(request: Request) {
       );
     }
     
-    // Get HF token from request headers or environment
-    const authHeader = request.headers.get('Authorization');
-    let hfToken = process.env.NEXT_PUBLIC_HF_TOKEN;
-    
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      hfToken = authHeader.substring(7);
-    } else if (!hfToken) {
-      return NextResponse.json(
-        { error: "Hugging Face token not found" },
-        { status: 401 }
-      );
-    }
-    
     // Create repository name for the fine-tuned model
     const repoName = name
       .trim()
@@ -50,8 +37,7 @@ export async function POST(request: Request) {
       options: {
         description: `Fine-tuned model: ${name}`,
         private: false,
-      },
-      token: hfToken
+      }
     });
 
     if (!createResult) {

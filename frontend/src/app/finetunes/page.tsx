@@ -230,9 +230,14 @@ export default function FinetunesPage() {
       if (!name || !baseModel || !datasetId || isNaN(epochs)) {
         throw new Error("Please fill out all required fields");
       }
+
+      console.log("Name:", name);
+      console.log("Base model:", baseModel);
+      console.log("Dataset ID:", datasetId);
+      console.log("Epochs:", epochs);
       
       // Get HF token for authorization header
-      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
+      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || '';
       
       if (!hfToken) {
         throw new Error("Hugging Face token not found");
@@ -529,7 +534,7 @@ export default function FinetunesPage() {
                   >
                     <option value="">Select a dataset</option>
                     {datasets.map(dataset => (
-                      <option key={dataset.id} value={dataset.id}>
+                      <option key={dataset.name} value={dataset.name}>
                         {dataset.name}
                       </option>
                     ))}

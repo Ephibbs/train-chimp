@@ -198,7 +198,7 @@ class FineTuningService:
                 card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
             else:
                 card.data.tags = []
-            card.data.tags.append("status:running")
+            card.data.tags.append("status:loading_model")
             card.data.tags.append("started_at:" + datetime.now().isoformat())
             card.push_to_hub(model_id)
             
@@ -256,6 +256,13 @@ class FineTuningService:
             #     tokenizer=tokenizer, 
             #     mlm=False
             # )
+            
+            if card.data.tags:
+                card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
+            else:
+                card.data.tags = []
+            card.data.tags.append("status:training")
+            card.push_to_hub(model_id)
             
             # Initialize trainer
             trainer = SFTTrainer(
