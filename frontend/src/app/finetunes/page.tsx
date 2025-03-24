@@ -621,7 +621,7 @@ export default function FinetunesPage() {
                     id="epochs"
                     name="epochs"
                     min="1"
-                    max="10"
+                    max="20"
                     defaultValue="3"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
                   />
