@@ -262,6 +262,7 @@ class FineTuningService:
             else:
                 card.data.tags = []
             card.data.tags.append("status:training")
+            card.data.tags.append("started_training_at:" + datetime.now().isoformat())
             card.push_to_hub(model_id)
             
             # Initialize trainer

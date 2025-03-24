@@ -4,21 +4,19 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { 
-  getUserModels, 
-  getUserDatasets, 
+  deleteModelRepo,
   createDatasetRepo,
   uploadFileToDataset,
   COLLECTION_NAME,
   getHFUsername,
   createDatasetCard,
-  deleteModelRepo
 } from "@/lib/hf";
 
 type FineTune = {
   id: string;
   name: string;
   baseModel: string;
-  status: "queued" | "running" | "completed" | "failed" | "provisioning";
+  status: "queued" | "running" | "completed" | "failed" | "provisioning" | "loading_model" | "training";
   createdAt: Date;
   updatedAt: Date;
 };
@@ -42,52 +40,51 @@ export default function FinetunesPage() {
     fetchFinetunes();
     fetchDatasets();
   }, []);
+    
+  //   // Set up polling for models that are still processing
+  //   const pollingInterval = setInterval(() => {
+  //     const hasProcessingModels = finetunes.some(model => 
+  //       ["queued", "provisioning", "loading_model", "training"].includes(model.status)
+  //     );
+      
+  //     if (hasProcessingModels) {
+  //       fetchFinetunes();
+  //     }
+  //   }, 10000); // Poll every 3 seconds
+    
+  //   // Clean up the interval when component unmounts
+  //   return () => clearInterval(pollingInterval);
+  // }, [finetunes]); // Add finetunes as a dependency
   
   const fetchFinetunes = async () => {
     try {
       setIsLoading(true);
       
-      // Get HF token from environment or storage
-      const hfToken = process.env.NEXT_PUBLIC_HF_TOKEN || localStorage.getItem('hfToken');
+      // Call our API endpoint instead of directly using the HF library
+      const response = await fetch('/api/finetunes', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log("Response:", response);
       
-      if (!hfToken) {
-        console.error("Hugging Face token not found");
-        return;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch finetunes');
       }
       
-      // Get the username from the token
-      const username = await getHFUsername() as string;
-
-      console.log("Username:", username);
-
-      if (!username) {
-        console.error("Username not found");
-        return;
-      }
+      const finetunes = await response.json();
+      console.log("Finetunes from API:", finetunes);
       
-      // Use the getUserModels function from hf.ts
-      const userModels = await getUserModels({username});
-
-      console.log("User models:", userModels);
-      
-      // Transform to our FineTune type
-      // Filter models tagged with TrainChimp
-      const formattedData = userModels
-        // .filter(model => model.tags.includes(COLLECTION_NAME))
-        .map(item => {
-          const models = item.tags.find(tag => tag.startsWith('base_model:'))
-          const baseModel = models?.replace('base_model:', '') || 'Unknown';
-          return {
-            id: item.id,
-            name: item.name,
-            baseModel: baseModel,
-            status: getModelStatus(item),
-            createdAt: new Date(),  // Use current date as fallback
-            updatedAt: new Date(item.lastModified)
-          }
-        });
-      
-      setFinetunes(formattedData);
+      // Format dates for display
+      const formattedFinetunes = finetunes.map((item: { updatedAt: string }) => ({
+        ...item,
+        updatedAt: item.updatedAt ? new Date(item.updatedAt) : 'Unknown'
+      }));
+      // Set the finetunes directly from the API response
+      setFinetunes(formattedFinetunes);
     } catch (error) {
       console.error("Error fetching finetunes:", error);
     } finally {
@@ -95,28 +92,25 @@ export default function FinetunesPage() {
     }
   };
   
-  // Helper function to determine model status based on model tags
-  const getModelStatus = (model: { tags: string[] }): "queued" | "running" | "completed" | "failed" | "provisioning" => {
-    if (model.tags.includes('status:failed')) return "failed";
-    if (model.tags.includes('status:provisioning')) return "provisioning";
-    if (model.tags.includes('status:running')) return "running";
-    if (model.tags.includes('status:queued')) return "queued";
-    if (model.tags.includes('status:completed')) return "completed";
-    return "completed"; // Default to completed if the model exists without status tags
-  };
-  
   const fetchDatasets = async () => {
     try {
-      // Get the username from the token
-      const username = await getHFUsername() as string;
+      // Call our API endpoint to get datasets
+      const response = await fetch('/api/datasets', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       
-      // Use the getUserDatasets function from hf.ts
-      const userDatasets = await getUserDatasets({username});
-
+      if (!response.ok) {
+        throw new Error('Failed to fetch datasets');
+      }
+      
+      const userDatasets = await response.json();
       console.log("User datasets:", userDatasets);
       
       // Transform to the format we need
-      const datasetsList = userDatasets.map(dataset => ({
+      const datasetsList = userDatasets.map((dataset: { id: string; name: string }) => ({
         id: dataset.id,
         name: dataset.name
       }));
@@ -431,7 +425,7 @@ export default function FinetunesPage() {
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {finetunes.map((finetune) => (
+              {finetunes.map((finetune: FineTune) => (
                 <tr key={finetune.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     {finetune.name}
@@ -450,7 +444,7 @@ export default function FinetunesPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {finetune.createdAt.toLocaleDateString()}
+                    {finetune.updatedAt.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     <Link href={`https://huggingface.co/${finetune.name}`} target="_blank" className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">

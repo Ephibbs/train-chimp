@@ -26,12 +26,12 @@ interface GetHFUsernameParams {
 }
 
 interface GetUserModelsParams {
-  username: string;
+  username?: string;
   token?: string;
 }
 
 interface GetUserDatasetsParams {
-  username: string;
+  username?: string;
   token?: string;
 }
 
@@ -169,6 +169,12 @@ export async function getHFUsername({
   }
 }
 
+const hfUsername = await getHFUsername();
+
+if (!hfUsername) {
+    console.error("Hugging Face username not found");
+}
+
 /**
  * Get models from a specific Hugging Face user
  * @param params Object containing username and optional token
@@ -177,9 +183,15 @@ export async function getHFUsername({
 export async function getUserModels({
   username,
   token
-}: GetUserModelsParams): Promise<HFModel[]> {
+}: GetUserModelsParams = {}): Promise<HFModel[]> {
   try {
     const accessToken = token || hfToken;
+    console.log("hfUsername:", hfUsername);
+    username = username || hfUsername as string;
+    if (!username) {
+      console.error("Username not found");
+      return [];
+    }
     const options = accessToken ? { accessToken } : undefined;
     const models: HFModel[] = [];
     
@@ -213,8 +225,13 @@ export async function getUserModels({
 export async function getUserDatasets({
   username,
   token
-}: GetUserDatasetsParams): Promise<HFDataset[]> {
+}: GetUserDatasetsParams = {}): Promise<HFDataset[]> {
   try {
+    username = username || hfUsername as string;
+    if (!username) {
+      console.error("Username not found");
+      return [];
+    }
     const options = token ? { accessToken: token } : undefined;
     const datasets: HFDataset[] = [];
     
