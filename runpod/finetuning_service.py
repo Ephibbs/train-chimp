@@ -97,15 +97,10 @@ class FineTuningService:
             torch_dtype=dtype,
             load_in_4bit=True,
             device_map="auto",
-            use_flash_attention_2=True,
             attn_implementation="flash_attention_2",  # Force flash attention
-            use_cache=True,  # Enable KV-cache
+            use_cache=False,  # Enable KV-cache
             pretraining_tp=1  # Tensor parallelism for pre-training
         )
-        
-        # Enable memory efficient attention if flash attention isn't available
-        if not model.config.use_flash_attention_2:
-            model.enable_mem_efficient_attention()
         
         # Prepare the model for training
         model = prepare_model_for_kbit_training(model)
@@ -228,7 +223,6 @@ class FineTuningService:
                 ignore_data_skip=True,
                 ddp_find_unused_parameters=False,  # Optimize DDP
                 tf32=True,  # Enable TF32 for faster matrix multiplications
-                use_flash_attention=True,
                 max_grad_norm=1.0,  # Gradient clipping for stability
             )
             
