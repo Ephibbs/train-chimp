@@ -21,7 +21,23 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchFineTuneDetails = async () => {
+    fetchFineTuneDetails();
+  }, [id]);
+
+  // Set up polling for models that are still processing
+  useEffect(() => {
+    // Only poll if the finetune is in a processing state
+    if (finetune && ["queued", "provisioning", "loading_model", "training"].includes(finetune.status)) {
+      const pollingInterval = setInterval(() => {
+        fetchFineTuneDetails();
+      }, 10000); // Poll every 10 seconds
+      
+      // Clean up the interval when component unmounts or status changes
+      return () => clearInterval(pollingInterval);
+    }
+  }, [finetune]);
+
+  const fetchFineTuneDetails = async () => {
       try {
         setIsLoading(true);
         
@@ -45,9 +61,6 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
         setIsLoading(false);
       }
     };
-
-    fetchFineTuneDetails();
-  }, [id]);
 
   if (isLoading) {
     return (
@@ -141,6 +154,11 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
     totalCost = (costPerHour / 60) * durationMinutes;
   }
 
+  const timeInCurrentState = finetune.status === "queued" ? formatDuration(queuedAt!, new Date()) : 
+    finetune.status === "provisioning" ? formatDuration(startedAt!, new Date()) : 
+    finetune.status === "loading_model" ? formatDuration(startedTrainingAt!, new Date()) : 
+    finetune.status === "training" ? formatDuration(startedTrainingAt!, new Date()) : null;
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8">
@@ -186,6 +204,9 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
                   "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"}
               `}>
                 {finetune.status.charAt(0).toUpperCase() + finetune.status.slice(1)}
+                {timeInCurrentState && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                  ({timeInCurrentState})
+                </span>}
               </span>
               {errorDetails && (
                 <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">

@@ -252,7 +252,7 @@ class FineTuningService:
                 logging_steps=10,
                 save_total_limit=1,
                 save_safetensors=True,
-                torch_compile=True,
+                # torch_compile=True,
             )
             
             # Setup data collator
