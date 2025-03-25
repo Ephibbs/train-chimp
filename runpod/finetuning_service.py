@@ -13,7 +13,7 @@ import logging
 import requests
 import boto3
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Hugging Face Hub imports
 from huggingface_hub import (
@@ -50,6 +50,8 @@ from peft import (
 )
 from datasets import load_dataset
 from supabase import create_client, Client
+
+get_utc_time = lambda: datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
 # Configure logging
 logging.basicConfig(
@@ -199,7 +201,7 @@ class FineTuningService:
             else:
                 card.data.tags = []
             card.data.tags.append("status:loading_model")
-            card.data.tags.append("started_at:" + datetime.now().isoformat())
+            card.data.tags.append("started_at:" + get_utc_time())
             card.push_to_hub(model_id)
             
             # print(f"Downloading dataset for {dataset_id}")
@@ -251,7 +253,6 @@ class FineTuningService:
                 save_total_limit=1,
                 save_safetensors=True,
                 torch_compile=True,
-                flash_attention_2=True
             )
             
             # Setup data collator
@@ -265,7 +266,7 @@ class FineTuningService:
             else:
                 card.data.tags = []
             card.data.tags.append("status:training")
-            card.data.tags.append("started_training_at:" + datetime.now().isoformat())
+            card.data.tags.append("started_training_at:" + get_utc_time())
             card.push_to_hub(model_id)
             
             # Initialize trainer
@@ -307,7 +308,7 @@ class FineTuningService:
             else:
                 card.data.tags = []
             card.data.tags.append("status:completed")
-            card.data.tags.append("completed_at:" + datetime.now().isoformat())
+            card.data.tags.append("completed_at:" + get_utc_time())
             card.push_to_hub(model_id)
             logger.info(f"Fine-tuning completed for model {model_id}")
             return True
@@ -322,7 +323,7 @@ class FineTuningService:
                 card.data.tags = []
             card.data.tags.append("status:failed")
             card.data.tags.append("error_details:" + str(e))
-            card.data.tags.append("completed_at:" + datetime.now().isoformat())
+            card.data.tags.append("completed_at:" + get_utc_time())
             card.push_to_hub(model_id)
             
             return False

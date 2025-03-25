@@ -31,6 +31,7 @@ export default function FinetunesPage() {
   
   // Fetch finetunes and datasets when component mounts
   useEffect(() => {
+    console.log("Fetching finetunes and datasets");
     fetchFinetunes();
     fetchDatasets();
   }, []);
@@ -45,7 +46,7 @@ export default function FinetunesPage() {
       if (hasProcessingModels) {
         fetchFinetunes();
       }
-    }, 3000); // Poll every 3 seconds
+    }, 10000); // Poll every 10 seconds
     
     // Clean up the interval when component unmounts
     return () => clearInterval(pollingInterval);
@@ -363,9 +364,11 @@ export default function FinetunesPage() {
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {finetunes.map((finetune: FineTuneHFModel) => (
-                <tr key={finetune.id}>
+                <tr key={finetune.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onClick={() => window.location.href = `/finetunes/${finetune.name}`}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    {finetune.name}
+                    <Link href={`/finetunes/${finetune.name}`} className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300">
+                      {finetune.name}
+                    </Link>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {finetune.baseModel}
@@ -384,19 +387,25 @@ export default function FinetunesPage() {
                     {finetune.updatedAt.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    <Link href={`https://huggingface.co/${finetune.name}`} target="_blank" className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">
-                      View
+                    <Link href={`https://huggingface.co/${finetune.name}`} target="_blank" className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3" onClick={(e) => e.stopPropagation()}>
+                      View on HF
                     </Link>
                     {finetune.status === "completed" && (
                       <button 
                         className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 mr-3"
-                        onClick={() => handleDeployClick(finetune)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeployClick(finetune);
+                        }}
                       >
                         Deploy
                       </button>
                     )}
                     <button 
-                      onClick={() => handleDeleteModel(finetune.name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteModel(finetune.name);
+                      }}
                       className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
                     >
                       Delete
