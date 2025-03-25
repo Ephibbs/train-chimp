@@ -86,16 +86,26 @@ class FineTuningService:
         # Load tokenizer if not already loaded
         if self.tokenizer is None:
             logger.info(f"Loading tokenizer for {base_model_type}")
-            self.tokenizer = AutoTokenizer.from_pretrained(base_model_type)
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model_type, use_fast=True)
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
             
+        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+        
         # Load model in 4-bit to save memory
         model = AutoModelForCausalLM.from_pretrained(
             base_model_type,
-            torch_dtype=torch.float16,
+            torch_dtype=dtype,
             load_in_4bit=True,
-            device_map="auto"
+            device_map="auto",
+            use_flash_attention_2=True,
+            attn_implementation="flash_attention_2",  # Force flash attention
+            use_cache=True,  # Enable KV-cache
+            pretraining_tp=1  # Tensor parallelism for pre-training
         )
+        
+        # Enable memory efficient attention if flash attention isn't available
+        if not model.config.use_flash_attention_2:
+            model.enable_mem_efficient_attention()
         
         # Prepare the model for training
         model = prepare_model_for_kbit_training(model)
@@ -109,49 +119,7 @@ class FineTuningService:
         if self.model is not None:
             del self.model
             torch.cuda.empty_cache()
-    
-    def process_dataset(self, dataset_path, base_model_type, instruction_template=None, max_length=512):
-        """Process the dataset for training"""
-        logger.info(f"Processing dataset: {dataset_path}")
-        
-        tokenizer = self.tokenizer
-        
-        # Load dataset
-        dataset = load_dataset('json', data_files=dataset_path)
-        
-        print(f"Dataset: {dataset}")
-        print(f"Dataset keys: {dataset.keys()}")
-        print(f"Dataset first item: {dataset['train'][0]}")
-        
-        # Apply tokenization
-        def tokenize_function(examples):
-            # Format based on instruction template or default to raw text
-            if instruction_template:
-                texts = [instruction_template.format(**item) for item in zip(
-                    examples.get('instruction', ['']),
-                    examples.get('input', ['']),
-                    examples.get('output', [''])
-                )]
-            else:
-                # Fallback to using 'text' field if available
-                texts = examples.get('text', examples.get('content', []))
-            
-            return tokenizer(
-                texts, 
-                truncation=True, 
-                padding="max_length",
-                max_length=max_length
-            )
-        
-        # Tokenize the dataset
-        tokenized_dataset = dataset.map(
-            tokenize_function,
-            batched=True,
-            remove_columns=dataset["train"].column_names
-        )
-        
-        return tokenized_dataset["train"]
-    
+ 
     def upload_model(self, model_id, progress=''):
         """Upload the model to Hugging Face Hub and save artifacts"""
         commit_message = f"Upload model for {model_id}" + (f" at {progress}" if progress else "")
@@ -223,7 +191,6 @@ class FineTuningService:
             print(f"Processing dataset for {model_id}")
             # Process dataset
             train_dataset = load_dataset(dataset_id)
-            # train_dataset = self.process_dataset(dataset_path, base_model, max_length=training_params.get("max_length", 512))
             
             # Configure LoRA
             lora_config = LoraConfig(
@@ -244,15 +211,25 @@ class FineTuningService:
                 output_dir=output_dir,
                 num_train_epochs=training_params.get("epochs", 1),
                 per_device_train_batch_size=training_params.get("batch_size", 8),
-                gradient_accumulation_steps=4,
+                gradient_accumulation_steps=2,
                 learning_rate=training_params.get("learning_rate", 2e-5),
-                bf16=True,
-                save_strategy="epoch",
+                bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+                fp16=not (torch.cuda.is_available() and torch.cuda.is_bf16_supported()),
+                save_strategy="no",
                 optim="adamw_torch_fused",
-                logging_steps=10,
+                logging_steps=50,
                 save_total_limit=1,
                 save_safetensors=True,
-                # torch_compile=True,
+                torch_compile=True,
+                torch_compile_backend="inductor",
+                dataloader_num_workers=os.cpu_count(),  # Max out CPU cores for data loading
+                dataloader_pin_memory=True,
+                group_by_length=True,  # Group similar lengths for efficiency
+                ignore_data_skip=True,
+                ddp_find_unused_parameters=False,  # Optimize DDP
+                tf32=True,  # Enable TF32 for faster matrix multiplications
+                use_flash_attention=True,
+                max_grad_norm=1.0,  # Gradient clipping for stability
             )
             
             # Setup data collator
