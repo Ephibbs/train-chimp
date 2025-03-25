@@ -202,13 +202,13 @@ class FineTuningService:
             card.data.tags.append("started_at:" + datetime.now().isoformat())
             card.push_to_hub(model_id)
             
-            print(f"Downloading dataset for {dataset_id}")
-            # Download dataset from HF Hub
-            dataset_path = hf_hub_download(
-                repo_id=dataset_id,
-                filename="data.jsonl",
-                repo_type="dataset"
-            )
+            # print(f"Downloading dataset for {dataset_id}")
+            # # Download dataset from HF Hub
+            # dataset_path = hf_hub_download(
+            #     repo_id=dataset_id,
+            #     filename="data.jsonl",
+            #     repo_type="dataset"
+            # )
             
             print(f"Loading base model for {model_id}")
             # Load base model if not already loaded
@@ -220,7 +220,7 @@ class FineTuningService:
             
             print(f"Processing dataset for {model_id}")
             # Process dataset
-            train_dataset = load_dataset('json', data_files=dataset_path)
+            train_dataset = load_dataset(dataset_id)
             # train_dataset = self.process_dataset(dataset_path, base_model, max_length=training_params.get("max_length", 512))
             
             # Configure LoRA
