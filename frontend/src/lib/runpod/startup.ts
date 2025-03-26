@@ -254,7 +254,7 @@ function generateStartupCommands(baseModel: string): string[] {
     
     # Download required scripts directly without git clone
     echo "Downloading training scripts..." >> /workspace/setup.log
-    curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/finetuning_service.py
+    curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/finetuning_service_unsloth.py
     curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/requirements.txt
     
     # Create config file for this model
@@ -266,7 +266,7 @@ function generateStartupCommands(baseModel: string): string[] {
     pip install -r requirements.txt
 
     # Start the training process
-    python finetuning_service.py
+    python finetuning_service_unsloth.py
     
     echo "Setup complete!" >> /workspace/setup.log
 

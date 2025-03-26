@@ -14,7 +14,7 @@ import requests
 import boto3
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
-from huggingface_hub import HFSummaryWriter
+from unsloth import UnslothTrainingArguments, UnslothTrainer
 
 # Hugging Face Hub imports
 from huggingface_hub import (
@@ -50,7 +50,7 @@ from peft import (
     prepare_model_for_kbit_training
 )
 from datasets import load_dataset
-from supabase import create_client, Client
+from unsloth import FastLanguageModel
 
 get_utc_time = lambda: datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
@@ -77,36 +77,23 @@ class FineTuningService:
         self.tokenizer = None
     
     def load_base_model(self, base_model_type):
-        """Load a base model into memory"""
+        """Load a base model into memory using Unsloth"""
         logger.info(f"Loading base model: {base_model_type}")
         
         # Check for GPU
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
         
-        # Load tokenizer if not already loaded
-        if self.tokenizer is None:
-            logger.info(f"Loading tokenizer for {base_model_type}")
-            self.tokenizer = AutoTokenizer.from_pretrained(base_model_type, use_fast=True)
-            self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-            
-        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
-        
-        # Load model in 4-bit to save memory
-        model = AutoModelForCausalLM.from_pretrained(
-            base_model_type,
-            torch_dtype=dtype,
-            load_in_4bit=True,
-            device_map="auto",
-            # attn_implementation="flash_attention_2",  # Force flash attention
-            # use_cache=False,  # Enable KV-cache
-            # pretraining_tp=1  # Tensor parallelism for pre-training
+        # Load model and tokenizer with Unsloth
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=base_model_type,
+            max_seq_length=2048, # Can adjust this parameter
+            dtype=None, # Will auto-select best dtype
+            load_in_4bit=True
         )
         
-        # Prepare the model for training
-        model = prepare_model_for_kbit_training(model)
-        
         self.model = model
+        self.tokenizer = tokenizer
         logger.info(f"Base model loaded successfully")
     
     def reset_model(self, base_model_type):
@@ -188,24 +175,18 @@ class FineTuningService:
             # Process dataset
             train_dataset = load_dataset(dataset_id)
             
-            # Configure LoRA
-            lora_config = LoraConfig(
+            # Configure LoRA with Unsloth
+            model = FastLanguageModel.get_peft_model(
+                model,
                 r=training_params.get("lora_rank", 8),
+                target_modules=["q_proj", "k_proj", "v_proj", "o_proj", 
+                               "gate_proj", "up_proj", "down_proj"],
                 lora_alpha=training_params.get("lora_alpha", 16),
-                task_type=TaskType.CAUSAL_LM,
-                lora_dropout=0.05,
-                bias="none",
-                target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
             )
             
-            # Apply LoRA config to the model
-            peft_model = get_peft_model(model, lora_config)
-            
-            writer = HFSummaryWriter(repo_id=model_id, commit_every=1)
-            
-            # Setup training arguments
+            # Setup training arguments with Unsloth
             output_dir = os.path.join(self.data_dir, "models", model_id)
-            training_args = SFTConfig(
+            training_args = UnslothTrainingArguments( # Use Unsloth training args
                 output_dir=output_dir,
                 num_train_epochs=training_params.get("epochs", 1),
                 per_device_train_batch_size=training_params.get("batch_size", 8),
@@ -213,27 +194,20 @@ class FineTuningService:
                 learning_rate=training_params.get("learning_rate", 2e-5),
                 bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
                 fp16=not (torch.cuda.is_available() and torch.cuda.is_bf16_supported()),
-                save_strategy="no",
                 optim="adamw_torch_fused",
                 logging_steps=50,
-                save_total_limit=1,
-                # save_safetensors=True,
-                # torch_compile=True,
-                # torch_compile_backend="inductor",
-                # dataloader_num_workers=os.cpu_count(),  # Max out CPU cores for data loading
-                # dataloader_pin_memory=True,
-                # group_by_length=True,  # Group similar lengths for efficiency
-                # ignore_data_skip=True,
-                # ddp_find_unused_parameters=False,  # Optimize DDP
-                # tf32=True,  # Enable TF32 for faster matrix multiplications
-                # max_grad_norm=1.0,  # Gradient clipping for stability
+                save_strategy="no",
             )
             
-            # Setup data collator
-            # data_collator = DataCollatorForLanguageModeling(
-            #     tokenizer=tokenizer, 
-            #     mlm=False
-            # )
+            # Initialize trainer with Unsloth
+            trainer = UnslothTrainer( # Use Unsloth trainer
+                model=model,
+                train_dataset=train_dataset["train"],
+                args=training_args,
+            )
+            
+            # Enable faster inference
+            FastLanguageModel.for_inference(model)
             
             if card.data.tags:
                 card.data.tags = [tag for tag in card.data.tags if not tag.startswith("status:")]
@@ -243,21 +217,13 @@ class FineTuningService:
             card.data.tags.append("started_training_at:" + get_utc_time())
             card.push_to_hub(model_id)
             
-            # Initialize trainer
-            trainer = SFTTrainer(
-                model=peft_model,
-                train_dataset=train_dataset["train"],
-                args=training_args,
-                # data_collator=data_collator,
-            )
-            
             # Start training
             logger.info(f"Starting fine-tuning for model {model_id}")
             trainer.train()
             
             # Save the trained model
             final_dir = os.path.join(output_dir, "final")
-            peft_model.save_pretrained(final_dir)
+            model.save_pretrained(final_dir)
             
             # Remove the automatically generated README.md file if it exists
             readme_path = os.path.join(final_dir, "README.md")
