@@ -145,7 +145,9 @@ export async function startGpuInstance(
       console.error(`Failed to delete HF model repository ${model_id}:`, deleteError);
     }
 
-    if (error?.response?.data) {
+    // Properly type the error and check for response field
+    if (error && typeof error === 'object' && 'response' in error && error.response && 
+        typeof error.response === 'object' && 'data' in error.response) {
         console.log("Error response data:", error.response.data);
         throw new Error(`Failed to launch RunPod GPU instance`);
     } else {
@@ -238,12 +240,19 @@ function generateStartupCommands(baseModel: string): string[] {
     # Cleanup function to terminate the pod
     cleanup() {
       echo "Cleaning up and terminating pod..." >> /workspace/setup.log
+      
+      # If an error occurred, call the error handler script with the error details
+      if [ $1 -ne 0 ]; then
+        echo "Error occurred, calling error handler..." >> /workspace/setup.log
+        python error_handler.py "$2"
+      fi
+      
       runpodctl remove pod $RUNPOD_POD_ID
       exit $1
     }
 
-    # Set trap to call cleanup on error
-    trap 'cleanup 1' ERR
+    # Set trap to call cleanup on error with error message
+    trap 'cleanup 1 "Execution failed with error code $?"' ERR
     
     echo "Setting up pod for ${baseModel}" > /workspace/setup.log
     cd /workspace
@@ -254,6 +263,7 @@ function generateStartupCommands(baseModel: string): string[] {
     
     # Download required scripts directly without git clone
     echo "Downloading training scripts..." >> /workspace/setup.log
+    curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/error_handler.py
     curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/finetuning_service_unsloth.py
     curl -sLO https://raw.githubusercontent.com/ephibbs/trainchimp/main/runpod/requirements.txt
     
@@ -265,13 +275,13 @@ function generateStartupCommands(baseModel: string): string[] {
     # Install dependencies
     pip install -r requirements.txt
 
-    # Start the training process
+    # Start the main finetuning process directly
     python finetuning_service_unsloth.py
     
     echo "Setup complete!" >> /workspace/setup.log
 
-    # Call cleanup when training is finished successfully
-    cleanup 0
+    # Call cleanup with success status when training completes normally
+    cleanup 0 "Training completed successfully"
     `
   ];
 

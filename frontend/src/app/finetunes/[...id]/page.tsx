@@ -21,6 +21,8 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [currentCostTime, setCurrentCostTime] = useState(new Date());
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [deploymentLoading, setDeploymentLoading] = useState(false);
   
   // Find the model from the context whenever models change
   useEffect(() => {
@@ -54,6 +56,62 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
 
     return () => clearInterval(costTimer);
   }, []);
+
+  // Add these deployment functions
+  const deployTogetherAI = async () => {
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement Together AI deployment
+      console.log(`Deploying ${finetune?.name} to Together AI`);
+      
+      // Simulate deployment process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${finetune?.name} to Together AI`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to Together AI:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
+  
+  const deployRunPod = async () => {
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement RunPod deployment
+      console.log(`Deploying ${finetune?.name} to RunPod Serverless`);
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${finetune?.name} to RunPod Serverless`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to RunPod:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
+  
+  const deployHuggingFace = async () => {
+    try {
+      setDeploymentLoading(true);
+      // TODO: Implement HF dedicated deployment
+      console.log(`Deploying ${finetune?.name} to Hugging Face Dedicated`);
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      alert(`Successfully deployed ${finetune?.name} to Hugging Face Dedicated`);
+      setIsDeployModalOpen(false);
+    } catch (error) {
+      console.error("Error deploying to Hugging Face:", error);
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
 
   if (isLoadingModels && !finetune) {
     return (
@@ -368,7 +426,10 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
                 </a>
                 
                 {finetune.status === "completed" && (
-                  <button className="flex items-center justify-center w-full px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">
+                  <button 
+                    onClick={() => setIsDeployModalOpen(true)}
+                    className="flex items-center justify-center w-full px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+                  >
                     Deploy Model
                   </button>
                 )}
@@ -381,6 +442,76 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
           </div>
         </div>
       </div>
+      {isDeployModalOpen && (
+        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-medium">Deploy Model</h3>
+                <button 
+                  onClick={() => setIsDeployModalOpen(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-gray-600 dark:text-gray-300">
+                  Select a deployment option for {finetune?.name}:
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <button
+                  onClick={deployTogetherAI}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">Together AI</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy as LoRA to Together AI serverless</div>
+                </button>
+
+                <button
+                  onClick={deployRunPod}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">RunPod Serverless</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod's serverless platform</div>
+                </button>
+                
+                <button
+                  onClick={deployHuggingFace}
+                  disabled={deploymentLoading}
+                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <div className="font-medium">Hugging Face Dedicated</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy to Hugging Face Inference API</div>
+                </button>
+              </div>
+              
+              {deploymentLoading && (
+                <div className="mt-4 text-center">
+                  <div className="inline-block animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Deploying model...</p>
+                </div>
+              )}
+              
+              <div className="pt-4 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDeployModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  disabled={deploymentLoading}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

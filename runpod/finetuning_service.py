@@ -217,6 +217,7 @@ class FineTuningService:
                 optim="adamw_torch_fused",
                 logging_steps=50,
                 save_total_limit=1,
+                report_to="tensorboard",
                 # save_safetensors=True,
                 # torch_compile=True,
                 # torch_compile_backend="inductor",
@@ -254,6 +255,8 @@ class FineTuningService:
             # Start training
             logger.info(f"Starting fine-tuning for model {model_id}")
             trainer.train()
+            
+            writer.close()
             
             # Save the trained model
             final_dir = os.path.join(output_dir, "final")
