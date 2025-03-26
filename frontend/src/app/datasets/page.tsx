@@ -2,16 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { FileUpIcon, Database, Plus } from "lucide-react";
-import Link from "next/link";
 import { 
-  getUserDatasets, 
   createDatasetRepo, 
   uploadFileToDataset, 
   deleteDatasetRepo, 
-  getHFUsername,
   createDatasetCard
 } from "@/app/actions/hf";
 import { COLLECTION_NAME } from "@/lib/types";
+import { useData } from "@/providers/DataProvider";
 // Import any additional dependencies as needed
 
 type Dataset = {
@@ -20,11 +18,12 @@ type Dataset = {
   description: string;
   fileCount: number;
   size: string;
-  createdAt: Date;
+  updatedAt: Date;
   datasetUrl: string;
 };
 
 export default function DatasetsPage() {
+  const { datasets: userDatasets, isLoadingDatasets, refreshDatasets, hfUsername } = useData();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,49 +33,27 @@ export default function DatasetsPage() {
   });
   const [files, setFiles] = useState<File[]>([]);
   
-  // Fetch datasets when component mounts
+  // Transform datasets from provider to our local format
   useEffect(() => {
-    fetchDatasets();
-  }, []);
-  
-  // Fetch datasets from Hugging Face
-  const fetchDatasets = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Get the username from the token
-      const username = await getHFUsername() as string;
-
-      if (!username) {
-        throw new Error("Username not found");
-      }
-
-      console.log("Username:", username);
-      
-      // Use the getUserDatasets function from hf.ts
-      const userDatasets = await getUserDatasets({username});
-
-      console.log("User datasets:", userDatasets);
-      
-      // Transform to our Dataset type
+    if (userDatasets && userDatasets.length > 0) {
       const formattedDatasets: Dataset[] = userDatasets.map(ds => ({
         id: ds.id,
         name: ds.name,
         description: '', // No description from HF API function, use empty string
         fileCount: 1, // Set default since we don't have this info
         size: '0 Bytes', // Set default since we don't have this info
-        createdAt: new Date(ds.lastModified),
-        datasetUrl: `https://huggingface.co/datasets/${ds.id}`
+        updatedAt: ds.updatedAt,
+        datasetUrl: `https://huggingface.co/datasets/${ds.name}`
       }));
+
+      // Sort datasets by updatedAt in descending order (newest first)
+      formattedDatasets.sort((a, b) => {
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      });
       
       setDatasets(formattedDatasets);
-      
-    } catch (error: unknown) {
-      console.error("Error fetching datasets:", error);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [userDatasets]);
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { id, value } = e.target;
@@ -125,8 +102,7 @@ export default function DatasetsPage() {
         .replace(/[^\w-]/g, '-')
         .replace(/-+/g, '-');
         
-      const username = await getHFUsername();
-      const datasetId = `${username}/${repoName}`;
+      const datasetId = `${hfUsername}/${repoName}`;
       
       // 1. Create the dataset repository on Hugging Face
       const createResult = await createDatasetRepo({
@@ -139,7 +115,7 @@ export default function DatasetsPage() {
 
       console.log("Create result:", createResult);
       const name = createResult?.id.split('/').pop();
-      const repoId = `${username}/${name}`;
+      const repoId = `${hfUsername}/${name}`;
       
       if (!createResult) {
         throw new Error("Failed to create dataset repository");
@@ -172,8 +148,8 @@ export default function DatasetsPage() {
       setFiles([]);
       setIsModalOpen(false);
       
-      // Refresh datasets list
-      fetchDatasets();
+      // Refresh datasets from the provider
+      refreshDatasets();
       
     } catch (error: unknown) {
       console.error("Error creating dataset:", error);
@@ -200,42 +176,41 @@ export default function DatasetsPage() {
         throw new Error("Failed to delete dataset");
       }
       
-      // Update the UI
-      setDatasets(prev => prev.filter(dataset => dataset.name !== name));
+      // Refresh the datasets list from the provider
+      refreshDatasets();
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deleting dataset:", error);
-      alert("Failed to delete dataset. Please try again.");
+      alert(`Failed to delete dataset: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsLoading(false);
     }
   };
+
+  console.log(datasets);
   
   return (
-    <div>
+    <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Datasets</h2>
+        <h1 className="text-2xl font-bold">My Datasets</h1>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center"
+          className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
         >
-          <Plus className="mr-2 h-4 w-4" />
+          <Plus className="h-5 w-5 mr-2" />
           New Dataset
         </button>
       </div>
-      
-      {isLoading && datasets.length === 0 ? (
-        <div className="text-center py-8">
-          <p>Loading datasets...</p>
+
+      {isLoadingDatasets && datasets.length === 0 ? (
+        <div className="flex justify-center my-12">
+          <div className="animate-spin h-10 w-10 border-4 border-blue-500 rounded-full border-t-transparent"></div>
         </div>
       ) : datasets.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-500 mb-4">
-            <Database size={24} />
-          </div>
-          <h3 className="text-xl font-medium mb-2">Create your first dataset</h3>
-          <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
-            Upload your training data to fine-tune custom models tailored to your needs.
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+          <h3 className="text-lg font-medium mb-2">No Datasets Yet</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">
+            You haven&apos;t created any datasets yet. Get started by creating your first dataset.
           </p>
           <button
             onClick={() => setIsModalOpen(true)}
@@ -245,73 +220,52 @@ export default function DatasetsPage() {
           </button>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Files
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Size
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Created
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {datasets.map((dataset) => (
-                <tr key={dataset.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    {dataset.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {dataset.description}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {dataset.fileCount}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {dataset.size}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {dataset.createdAt.toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <Link 
-                      href={`https://huggingface.co/datasets/${dataset.name}`}
-                      target="_blank"
-                      className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3"
-                    >
-                      View
-                    </Link>
-                    <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">
-                      Use
-                    </button>
-                    <button 
-                      onClick={() => handleDeleteDataset(dataset.name)}
-                      className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 gap-6">
+          {datasets.map((dataset) => (
+            <div
+              key={dataset.id}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden"
+            >
+              <div className="p-6">
+                <h3 className="text-lg font-medium mb-2">{dataset.name}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 truncate">
+                  {dataset.description || "No description provided"}
+                </p>
+                
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center">
+                    <Database className="h-4 w-4 text-blue-500 mr-2" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">
+                      {dataset.fileCount} file{dataset.fileCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    {dataset.updatedAt?.toLocaleDateString()}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <a
+                    href={dataset.datasetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:text-blue-700"
+                  >
+                    View on HF
+                  </a>
+                  <button
+                    onClick={() => handleDeleteDataset(dataset.name)}
+                    className="px-3 py-1 text-xs bg-red-500 text-white rounded-md hover:bg-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
-      
+
       {/* Dataset creation modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

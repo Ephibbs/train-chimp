@@ -31,10 +31,7 @@ export async function startFinetune(name: string, baseModel: string, datasetId: 
       };
     }
     
-    // Create model card with metadata
-    await createModelCard({
-      repoId: modelId,
-      cardData: {
+    const card = {
         base_model: baseModel,
         datasets: [datasetId],
         tags: [
@@ -46,28 +43,25 @@ export async function startFinetune(name: string, baseModel: string, datasetId: 
         trainParams: {
           epochs: epochs,
           learning_rate: 0.0001,
-          batch_size: 16,
-          max_length: 1024
+          batch_size: 1,
+          max_length: 2048
         }
-      }
+      };
+    // Create model card with metadata
+    await createModelCard({
+      repoId: modelId,
+      cardData: card
     });
     
     const gpuMemory = calculateRequiredGpuMemory(baseModel);
 
     // Start GPU instance for training
     const gpuInstance = await startGpuInstance(modelId, gpuMemory);
-    
-    const card = await getModelCard({ repoId: modelId });
-    const filteredTags = card?.tags.filter((tag: string) => !tag.startsWith("status:")) || [];
+    card.tags.push(`costPerHr:${gpuInstance.costPerHr}`);
+    card.tags.push(`gpu:${gpuInstance.instanceType}`);
     await updateModelCard({
       repoId: modelId,
-      cardData: {
-        tags: [
-          ...filteredTags,
-          `status:provisioning gpus`,
-          `costPerHr:${gpuInstance.costPerHr}`
-        ]
-      }
+      cardData: card
     });
     return {
         success: true,

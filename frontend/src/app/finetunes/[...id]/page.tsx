@@ -3,66 +3,59 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { ArrowLeft, GitBranch, Award, Clock, Download, Heart, ExternalLink } from "lucide-react";
-import { getUserModels } from "@/app/actions/hf";
 import { FineTuneHFModel } from "@/lib/types";
+import { useData } from "@/providers/DataProvider";
 
 // Define the props for this component
 interface FineTuneDetailsPageProps {
   params: {
-    id: string;
+    id: string[];
   };
 }
 
 export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps) {
   const { id: nameList } = use(params) as { id: string[] };
   const id = nameList[0] + "/" + nameList[1];
+  const { models, isLoadingModels } = useData();
   const [finetune, setFinetune] = useState<FineTuneHFModel | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentCostTime, setCurrentCostTime] = useState(new Date());
+  
+  // Find the model from the context whenever models change
   useEffect(() => {
-    fetchFineTuneDetails();
-  }, [id]);
-
-  // Set up polling for models that are still processing
-  useEffect(() => {
-    // Only poll if the finetune is in a processing state
-    if (finetune && ["queued", "provisioning", "loading_model", "training"].includes(finetune.status)) {
-      const pollingInterval = setInterval(() => {
-        fetchFineTuneDetails();
-      }, 10000); // Poll every 10 seconds
+    if (models.length > 0) {
+      const foundFinetune = models.find(
+        (ft) => ft.name === id || ft.id === id
+      );
       
-      // Clean up the interval when component unmounts or status changes
-      return () => clearInterval(pollingInterval);
-    }
-  }, [finetune]);
-
-  const fetchFineTuneDetails = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Fetch all finetunes
-        const finetunes = await getUserModels();
-        
-        // Find the specific finetune by ID (which is the name in our case)
-        const foundFinetune = finetunes.find(
-          (ft) => ft.name === id || ft.id === id
-        );
-        
-        if (foundFinetune) {
-          setFinetune(foundFinetune);
-        } else {
-          setError("Fine-tune not found");
-        }
-      } catch (err) {
-        setError("Failed to load fine-tune details");
-        console.error("Error fetching fine-tune details:", err);
-      } finally {
-        setIsLoading(false);
+      if (foundFinetune) {
+        setFinetune(foundFinetune);
+      } else {
+        setError("Fine-tune not found");
       }
-    };
+    }
+  }, [models, id]);
 
-  if (isLoading) {
+  // Add this useEffect for updating the current time
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Separate useEffect for cost updates
+  useEffect(() => {
+    const costTimer = setInterval(() => {
+      setCurrentCostTime(new Date());
+    }, 60000); // Update every minute
+
+    return () => clearInterval(costTimer);
+  }, []);
+
+  if (isLoadingModels && !finetune) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center h-64">
@@ -142,22 +135,24 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
   const startedTrainingAt = metadataFromTags.started_training_at ? new Date(ensureUTC(metadataFromTags.started_training_at)) : null;
   const completedAt = metadataFromTags.completed_at ? new Date(ensureUTC(metadataFromTags.completed_at)) : null;
   
+  const totalTime = completedAt ? completedAt.getTime() - queuedAt!.getTime() : new Date().getTime() - queuedAt!.getTime();
+
   // Other metadata
-  const costPerHour = metadataFromTags.costPerHour ? parseFloat(metadataFromTags.costPerHour) : null;
+  const costPerHour = metadataFromTags.costPerHr ? parseFloat(metadataFromTags.costPerHr) : null;
   const dataset = metadataFromTags.dataset || '';
   const baseModel = metadataFromTags.base_model || '';
 
   // Calculate total cost
   let totalCost = null;
-  if (costPerHour !== null && queuedAt && completedAt) {
-    const durationMinutes = (completedAt.getTime() - queuedAt.getTime()) / (1000 * 60);
+  if (costPerHour !== null && queuedAt) {
+    const maxTime = completedAt ? completedAt : currentCostTime;
+    const durationMinutes = (maxTime.getTime() - queuedAt.getTime()) / (1000 * 60);
     totalCost = (costPerHour / 60) * durationMinutes;
   }
 
-  const timeInCurrentState = finetune.status === "queued" ? formatDuration(queuedAt!, new Date()) : 
-    finetune.status === "provisioning" ? formatDuration(startedAt!, new Date()) : 
-    finetune.status === "loading_model" ? formatDuration(startedTrainingAt!, new Date()) : 
-    finetune.status === "training" ? formatDuration(startedTrainingAt!, new Date()) : null;
+  const timeInCurrentState = finetune.status === "queued" ? formatDuration(queuedAt!, currentTime) : 
+    finetune.status === "loading model" ? formatDuration(startedAt!, currentTime) : 
+    finetune.status === "training" ? formatDuration(startedTrainingAt!, currentTime) : null;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -171,7 +166,7 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
         
         <div className="flex flex-col md:flex-row items-start gap-8">
           <div className="flex-1">
-            <h1 className="text-3xl font-bold mb-2">{finetune.name}</h1>
+            <h1 className="text-3xl font-bold mb-2">{finetune.name.split("/")[1]}</h1>
             <div className="flex items-center mb-4">
               <span className="text-sm text-gray-500 dark:text-gray-400">by {finetune.author}</span>
             </div>
@@ -217,116 +212,20 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
               )}
             </div>
             
-            <div className="mb-6">
-              <div className="flex items-center mb-2">
-                <GitBranch className="h-5 w-5 text-gray-500 mr-2" />
-                <h3 className="text-lg font-medium">Base Model</h3>
-              </div>
-              <p className="text-gray-600 dark:text-gray-300">
-                {baseModel || finetune.baseModel}
-              </p>
-            </div>
-            
-            {/* Training Timeline Section */}
-            <div className="mb-6">
-              <div className="flex items-center mb-2">
-                <Clock className="h-5 w-5 text-gray-500 mr-2" />
-                <h3 className="text-lg font-medium">Training Timeline</h3>
-              </div>
-              <div className="relative pb-4">
-                {/* Timeline vertical line */}
-                <div className="absolute left-4 top-0 bottom-10 w-0.5 bg-gray-200 dark:bg-gray-700"></div>
-                
-                {/* Queued */}
-                {queuedAt && (
-                  <div className="relative flex items-start mb-6 pl-12">
-                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900">
-                      <Clock className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-medium">Queued</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {queuedAt.toLocaleString()}
-                         {queuedAt && startedAt && <span className="ml-2 text-xs text-blue-500">
-                          (Setup took {formatDuration(queuedAt, startedAt)})
-                        </span>}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Started */}
-                {startedAt && (
-                  <div className="relative flex items-start mb-6 pl-12">
-                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900">
-                      <ArrowLeft className="h-4 w-4 text-indigo-600 dark:text-indigo-300 rotate-45" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-medium">Loading Model</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {startedAt.toLocaleString()}
-                        {startedAt && startedTrainingAt && <span className="ml-2 text-xs text-blue-500">
-                          (Model loading took {formatDuration(startedAt, startedTrainingAt)})
-                        </span>}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Started Training */}
-                {startedTrainingAt && (
-                  <div className="relative flex items-start mb-6 pl-12">
-                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900">
-                      <GitBranch className="h-4 w-4 text-purple-600 dark:text-purple-300" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-medium">Started Training</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {startedTrainingAt.toLocaleString()}
-                        {startedTrainingAt && completedAt && <span className="ml-2 text-xs text-blue-500">
-                          (Training took {formatDuration(startedTrainingAt, completedAt)})
-                        </span>}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Completed */}
-                {completedAt && (
-                  <div className="relative flex items-start pl-12">
-                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
-                      <Award className="h-4 w-4 text-green-600 dark:text-green-300" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-medium">Completed</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {completedAt.toLocaleString()}
-                      </p>
-                      {queuedAt && <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 mt-1">
-                        Total time: {formatDuration(queuedAt, completedAt)}
-                      </p>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            
             {/* Additional Details Section */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               {costPerHour !== null && (
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                   <div className="flex items-center text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
                     <Download className="h-4 w-4 text-gray-500 mr-1" />
-                    Cost Per Hour
+                    Total Cost
                   </div>
                   <div className="text-md font-medium text-gray-800 dark:text-gray-200">
-                    ${costPerHour.toFixed(2)}
+                    ${totalCost?.toFixed(2)} ({Math.round(totalTime / (1000 * 60))} minutes)
                   </div>
-                  {totalCost !== null && (
-                    <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                      Total: ${totalCost.toFixed(2)} ({Math.round((completedAt!.getTime() - queuedAt!.getTime()) / (1000 * 60))} minutes)
-                    </div>
-                  )}
+                  <div className="text-xs font-medium text-gray-400 dark:text-gray-400">
+                    ${costPerHour.toFixed(2)} per hour
+                  </div>
                 </div>
               )}
               
@@ -366,6 +265,91 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
                 </a>
               )}
             </div>
+            
+            {/* Training Timeline Section */}
+            <div className="mb-6">
+              <div className="flex items-center mb-2">
+                <Clock className="h-5 w-5 text-gray-500 mr-2" />
+                <h3 className="text-lg font-medium">Training Timeline</h3>
+              </div>
+              <div className="relative pb-4">
+                {/* Timeline vertical line */}
+                <div className="absolute left-4 top-0 bottom-10 w-0.5 bg-gray-200 dark:bg-gray-700"></div>
+                
+                {/* Queued */}
+                {queuedAt && (
+                  <div className="relative flex items-start mb-6 pl-12">
+                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900">
+                      <Clock className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium">Setup GPUs</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {queuedAt.toLocaleString()}
+                         {queuedAt && startedAt && <span className="ml-2 text-xs text-blue-500">
+                          (Setup took {formatDuration(queuedAt, startedAt)})
+                        </span>}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Started */}
+                {startedAt && (
+                  <div className="relative flex items-start mb-6 pl-12">
+                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900">
+                      <ArrowLeft className="h-4 w-4 text-indigo-600 dark:text-indigo-300 rotate-45" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium">Load Model</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {startedAt.toLocaleString()}
+                        {startedAt && startedTrainingAt && <span className="ml-2 text-xs text-blue-500">
+                          (Model loading took {formatDuration(startedAt, startedTrainingAt)})
+                        </span>}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Started Training */}
+                {startedTrainingAt && (
+                  <div className="relative flex items-start mb-6 pl-12">
+                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900">
+                      <GitBranch className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium">Training</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {startedTrainingAt.toLocaleString()}
+                        {startedTrainingAt && completedAt && <span className="ml-2 text-xs text-blue-500">
+                          (Training took {formatDuration(startedTrainingAt, completedAt)})
+                        </span>}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Completed */}
+                {completedAt && (
+                  <div className="relative flex items-start pl-12">
+                    <div className="absolute left-0 w-8 h-8 flex items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
+                      <Award className="h-4 w-4 text-green-600 dark:text-green-300" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium">Completed</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {completedAt.toLocaleString()}
+                      </p>
+                      {queuedAt && <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 mt-1">
+                        Total time: {formatDuration(queuedAt, completedAt)}
+                      </p>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          
           </div>
           
           <div className="w-full md:w-1/3 space-y-4">

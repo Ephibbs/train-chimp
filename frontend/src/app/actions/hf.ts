@@ -20,7 +20,7 @@ interface HFDataset {
   author: string;
   tags: string[];
   downloads: number;
-  lastModified: string;
+  updatedAt: Date;
 }
 
 // Parameter interfaces for functions
@@ -163,12 +163,6 @@ export async function getHFUsername({
   }
 }
 
-const hfUsername = await getHFUsername();
-
-if (!hfUsername) {
-    console.error("Hugging Face username not found");
-}
-
 // Helper function to determine model status based on model tags
 function getModelStatus(model: { tags: string[] }): FineTuneHFModel['status'] {
   if (model.tags.includes('status:failed')) return "failed";
@@ -191,7 +185,6 @@ export async function getUserModels({
 }: GetUserModelsParams = {}): Promise<FineTuneHFModel[]> {
   try {
     const accessToken = token || hfToken;
-    username = username || hfUsername as string;
     if (!username) {
       console.error("Username not found");
       return [];
@@ -236,7 +229,6 @@ export async function getUserDatasets({
   token
 }: GetUserDatasetsParams = {}): Promise<HFDataset[]> {
   try {
-    username = username || hfUsername as string;
     if (!username) {
       console.error("Username not found");
       return [];
@@ -254,7 +246,7 @@ export async function getUserDatasets({
         name: dataset.name,
         tags: dataset.tags || [],
         downloads: dataset.downloads || 0,
-        lastModified: dataset.lastModified || '',
+        updatedAt: new Date(dataset.updatedAt),
       });
     }
     
@@ -532,33 +524,18 @@ export async function updateModelCard({
       return false;
     }
     
-    // First, get the existing model card
-    const existingCard = await getModelCard({ repoId, token: accessToken });
-    
-    if (!existingCard) {
-      console.error(`Could not retrieve existing model card for ${repoId}`);
-      return false;
-    }
-    
     // Merge the existing card data with the new data
-    const updatedCardData: ModelCardData = {
-      ...existingCard,
-      ...cardData,
-      // For arrays, if new values are provided, use them, otherwise keep existing values
-      tags: cardData.tags || existingCard.tags,
-      datasets: cardData.datasets || existingCard.datasets,
-      // For nested objects, merge them
-      trainParams: cardData.trainParams ? {
-        ...existingCard.trainParams,
-        ...cardData.trainParams
-      } : existingCard.trainParams
-    };
+    const updatedCardData: ModelCardData = cardData
+
+    console.log("Updated card data:", updatedCardData);
     
     // Generate updated README.md content for model card
     const cardContent = generateModelCardContent(updatedCardData);
     
+    console.log("Card content:", cardContent);
+    
     // Upload updated README.md to the repository
-    await hub.uploadFiles({
+    const result = await hub.uploadFiles({
       repo: {
         type: "model",
         name: repoId
@@ -571,6 +548,8 @@ export async function updateModelCard({
       ],
       accessToken
     });
+    
+    console.log("UploadModelCard result:", result);
     
     return true;
   } catch (error) {
