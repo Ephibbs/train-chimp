@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Plus, Brain, Database } from "lucide-react";
 import { 
@@ -14,7 +14,6 @@ import { startFinetune } from "../actions/finetune";
 import { useData } from "@/providers/DataProvider";
 
 export default function FinetunesPage() {
-  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTuneHFModel | null>(null);

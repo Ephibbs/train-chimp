@@ -97,9 +97,9 @@ class FineTuningService:
             torch_dtype=dtype,
             load_in_4bit=True,
             device_map="auto",
-            attn_implementation="flash_attention_2",  # Force flash attention
-            use_cache=False,  # Enable KV-cache
-            pretraining_tp=1  # Tensor parallelism for pre-training
+            # attn_implementation="flash_attention_2",  # Force flash attention
+            # use_cache=False,  # Enable KV-cache
+            # pretraining_tp=1  # Tensor parallelism for pre-training
         )
         
         # Prepare the model for training
@@ -214,16 +214,16 @@ class FineTuningService:
                 optim="adamw_torch_fused",
                 logging_steps=50,
                 save_total_limit=1,
-                save_safetensors=True,
-                torch_compile=True,
-                torch_compile_backend="inductor",
-                dataloader_num_workers=os.cpu_count(),  # Max out CPU cores for data loading
-                dataloader_pin_memory=True,
-                group_by_length=True,  # Group similar lengths for efficiency
-                ignore_data_skip=True,
-                ddp_find_unused_parameters=False,  # Optimize DDP
-                tf32=True,  # Enable TF32 for faster matrix multiplications
-                max_grad_norm=1.0,  # Gradient clipping for stability
+                # save_safetensors=True,
+                # torch_compile=True,
+                # torch_compile_backend="inductor",
+                # dataloader_num_workers=os.cpu_count(),  # Max out CPU cores for data loading
+                # dataloader_pin_memory=True,
+                # group_by_length=True,  # Group similar lengths for efficiency
+                # ignore_data_skip=True,
+                # ddp_find_unused_parameters=False,  # Optimize DDP
+                # tf32=True,  # Enable TF32 for faster matrix multiplications
+                # max_grad_norm=1.0,  # Gradient clipping for stability
             )
             
             # Setup data collator
