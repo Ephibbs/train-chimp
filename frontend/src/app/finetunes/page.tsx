@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Brain, Database } from "lucide-react";
 import { 
   deleteModelRepo,
   createDatasetRepo,
@@ -283,8 +283,27 @@ export default function FinetunesPage() {
               {/* Model card content */}
               <div className="p-6">
                 <h3 className="text-lg font-medium mb-2">{finetune.name.split('/')[1]}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Based on {finetune.baseModel || 'Unknown model'}
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 flex items-center">
+                  <Brain className="h-4 w-4 mr-1" />{' '}
+                  <a 
+                    href={`https://huggingface.co/${finetune.baseModel}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:text-blue-700"
+                  >
+                    {finetune.baseModel || 'Unknown model'}
+                  </a>
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex items-center">
+                  <Database className="h-4 w-4 mr-1" />{' '}
+                  <a 
+                    href={`https://huggingface.co/datasets/${finetune.dataset}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:text-blue-700"
+                  >
+                    {finetune.dataset || 'Unknown dataset'}
+                  </a>
                 </p>
                 
                 <div className="flex items-center justify-between mb-4">

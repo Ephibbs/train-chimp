@@ -198,13 +198,15 @@ export async function getUserModels({
     })) {
       const modelTag = model.tags.find((tag: string) => tag.startsWith('base_model:'));
       const baseModel = modelTag?.replace('base_model:', '') || 'Unknown';
-
+      const dataset = model.tags.find((tag: string) => tag.startsWith('dataset:'));
+      const datasetName = dataset?.replace('dataset:', '') || 'Unknown';
       models.push({
         id: model.id,
         name: model.name,
         author: username,
         status: getModelStatus(model),
         baseModel: baseModel,
+        dataset: datasetName,
         tags: model.tags || [],
         downloads: model.downloads || 0,
         likes: model.likes || 0,

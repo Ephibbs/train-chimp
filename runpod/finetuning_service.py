@@ -97,7 +97,7 @@ class FineTuningService:
             torch_dtype=dtype,
             load_in_4bit=True,
             device_map="auto",
-            # attn_implementation="flash_attention_2",  # Force flash attention
+            attn_implementation="flash_attention_2",  # Force flash attention
             use_cache=False,  # Enable KV-cache
             pretraining_tp=1  # Tensor parallelism for pre-training
         )

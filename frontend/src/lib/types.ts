@@ -16,6 +16,7 @@ export interface FineTuneHFModel {
   tags: string[];
   status: "queued" | "provisioning" | "loading model" | "training" | "completed" | "failed" | "unknown";
   baseModel: string;
+  dataset: string;
   downloads: number;
   likes: number;
   updatedAt: Date;
