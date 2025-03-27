@@ -12,12 +12,12 @@ import {
 import { COLLECTION_NAME, FineTuneHFModel } from "@/lib/types";
 import { startFinetune } from "../actions/finetune";
 import { useData } from "@/providers/DataProvider";
+import DeploymentModal from "@/components/DeploymentModal";
 
 export default function FinetunesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedModelForDeploy, setSelectedModelForDeploy] = useState<FineTuneHFModel | null>(null);
-  const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [datasetOption, setDatasetOption] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -25,6 +25,8 @@ export default function FinetunesPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { models, datasets, isLoadingModels, refreshModels, refreshDatasets, hfUsername } = useData();
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [trainingMethod, setTrainingMethod] = useState("lora");
   
   // Upload dataset function (for when creating a new dataset during finetune)
   const handleFileUpload = async (file: File, datasetName: string) => {
@@ -119,6 +121,18 @@ export default function FinetunesPage() {
       const datasetId = formData.get('dataset') as string;
       const epochs = parseInt(formData.get('epochs') as string, 10);
       
+      // Extract advanced params if they exist
+      const learningRate = formData.get('learning_rate') ? parseFloat(formData.get('learning_rate') as string) : undefined;
+      const batchSize = formData.get('batch_size') ? parseInt(formData.get('batch_size') as string, 10) : undefined;
+      const cutoffLength = formData.get('cutoff_length') ? parseInt(formData.get('cutoff_length') as string, 10) : undefined;
+      const warmupSteps = formData.get('warmup_steps') ? parseInt(formData.get('warmup_steps') as string, 10) : undefined;
+
+      // LoRA specific params
+      const loraRank = formData.get('lora_rank') ? parseInt(formData.get('lora_rank') as string, 10) : undefined;
+      const loraAlpha = formData.get('lora_alpha') ? parseInt(formData.get('lora_alpha') as string, 10) : undefined;
+      const loraDropout = formData.get('lora_dropout') ? parseFloat(formData.get('lora_dropout') as string) : undefined;
+      const targetModules = formData.get('target_modules') as string || undefined;
+      
       if (!name || !baseModel || !datasetId || isNaN(epochs)) {
         throw new Error("Please fill out all required fields");
       }
@@ -135,8 +149,20 @@ export default function FinetunesPage() {
         throw new Error("Hugging Face token not found");
       }
       
-      // Call the API endpoint
-      const job = await startFinetune(name, baseModel, datasetId, epochs);
+      // Call the API endpoint with advanced parameters
+      const advancedParams = {
+        training_method: trainingMethod,
+        learning_rate: learningRate,
+        batch_size: batchSize,
+        cutoff_length: cutoffLength,
+        warmup_steps: warmupSteps,
+        lora_rank: loraRank,
+        lora_alpha: loraAlpha,
+        lora_dropout: loraDropout,
+        target_modules: targetModules ? targetModules.split(',').map(m => m.trim()) : undefined,
+      };
+      
+      const job = await startFinetune(name, baseModel, datasetId, epochs, advancedParams);
       
       console.log('Fine-tune created:', job);
 
@@ -158,71 +184,6 @@ export default function FinetunesPage() {
     setIsDeployModalOpen(true);
   };
   
-  // Deploy with Together AI
-  const deployTogetherAI = async () => {
-    if (!selectedModelForDeploy) return;
-    
-    try {
-      setDeploymentLoading(true);
-      // TODO: Implement Together AI deployment
-      console.log(`Deploying ${selectedModelForDeploy.name} to Together AI`);
-      
-      // Simulate deployment process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      alert(`Successfully deployed ${selectedModelForDeploy.name} to Together AI`);
-      setIsDeployModalOpen(false);
-    } catch (error) {
-      console.error("Error deploying to Together AI:", error);
-      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setDeploymentLoading(false);
-    }
-  };
-  
-  // Deploy with RunPod
-  const deployRunPod = async () => {
-    if (!selectedModelForDeploy) return;
-    
-    try {
-      setDeploymentLoading(true);
-      // TODO: Implement RunPod deployment
-      console.log(`Deploying ${selectedModelForDeploy.name} to RunPod Serverless`);
-      
-      // Simulate deployment process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      alert(`Successfully deployed ${selectedModelForDeploy.name} to RunPod Serverless`);
-      setIsDeployModalOpen(false);
-    } catch (error) {
-      console.error("Error deploying to RunPod:", error);
-      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setDeploymentLoading(false);
-    }
-  };
-  
-  // Deploy with Hugging Face
-  const deployHuggingFace = async () => {
-    if (!selectedModelForDeploy) return;
-    
-    try {
-      setDeploymentLoading(true);
-      // TODO: Implement HF dedicated deployment
-      console.log(`Deploying ${selectedModelForDeploy.name} to Hugging Face Dedicated`);
-      
-      // Simulate deployment process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      alert(`Successfully deployed ${selectedModelForDeploy.name} to Hugging Face Dedicated`);
-      setIsDeployModalOpen(false);
-    } catch (error) {
-      console.error("Error deploying to Hugging Face:", error);
-      alert(`Failed to deploy: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setDeploymentLoading(false);
-    }
-  };
   const handleDeleteModel = async (modelId: string) => {
     if (window.confirm(`Are you sure you want to delete this model: ${modelId}?`)) {
       try {
@@ -347,6 +308,16 @@ export default function FinetunesPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Add Together AI deployment status indicator */}
+                {finetune.together_deployed && (
+                  <div className="mt-2 flex items-center">
+                    <span className="bg-blue-100 text-blue-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded">
+                      Deployed on Together AI
+                    </span>
+                    <span className="text-xs text-gray-500">ID: {finetune.together_deployed}</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -493,20 +464,185 @@ export default function FinetunesPage() {
                   </div>
                 )}
                 
-                <div>
-                  <label htmlFor="epochs" className="block text-sm font-medium mb-1">
-                    Epochs
-                  </label>
-                  <input
-                    type="number"
-                    id="epochs"
-                    name="epochs"
-                    min="1"
-                    max="20"
-                    defaultValue="3"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
-                  />
+                {/* Advanced options toggle - moved up since epochs is now in advanced */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                    className="text-blue-500 hover:text-blue-700 text-sm flex items-center"
+                  >
+                    {showAdvancedOptions ? '- Hide' : '+ Show'} Advanced Options
+                  </button>
                 </div>
+                
+                {/* Advanced options section */}
+                {showAdvancedOptions && (
+                  <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4 mt-2">
+                    <h4 className="font-medium text-sm">Training Method</h4>
+                    <div className="flex space-x-4">
+                      <label className="inline-flex items-center">
+                        <input
+                          type="radio"
+                          name="training_method"
+                          value="lora"
+                          checked={trainingMethod === "lora"}
+                          onChange={() => setTrainingMethod("lora")}
+                          className="form-radio"
+                        />
+                        <span className="ml-2">LoRA</span>
+                      </label>
+                      <label className="inline-flex items-center">
+                        <input
+                          type="radio"
+                          name="training_method"
+                          value="full"
+                          checked={trainingMethod === "full"}
+                          onChange={() => setTrainingMethod("full")}
+                          className="form-radio"
+                        />
+                        <span className="ml-2">Full Fine-tuning</span>
+                      </label>
+                    </div>
+                    
+                    {/* General parameters */}
+                    <div>
+                      <h4 className="font-medium text-sm mb-2">General Parameters</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label htmlFor="epochs" className="block text-xs font-medium mb-1">
+                            Epochs
+                          </label>
+                          <input
+                            type="number"
+                            id="epochs"
+                            name="epochs"
+                            min="1"
+                            max="20"
+                            defaultValue="3"
+                            className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="learning_rate" className="block text-xs font-medium mb-1">
+                            Learning Rate
+                          </label>
+                          <input
+                            type="number"
+                            id="learning_rate"
+                            name="learning_rate"
+                            step="0.0000001"
+                            defaultValue="0.0002"
+                            className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="batch_size" className="block text-xs font-medium mb-1">
+                            Batch Size
+                          </label>
+                          <input
+                            type="number"
+                            id="batch_size"
+                            name="batch_size"
+                            min="1"
+                            defaultValue="4"
+                            className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="cutoff_length" className="block text-xs font-medium mb-1">
+                            Max Sequence Length
+                          </label>
+                          <input
+                            type="number"
+                            id="cutoff_length"
+                            name="cutoff_length"
+                            min="128"
+                            max="8192"
+                            defaultValue="2048"
+                            className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="warmup_steps" className="block text-xs font-medium mb-1">
+                            Warmup Steps
+                          </label>
+                          <input
+                            type="number"
+                            id="warmup_steps"
+                            name="warmup_steps"
+                            min="0"
+                            defaultValue="100"
+                            className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* LoRA specific parameters */}
+                    {trainingMethod === "lora" && (
+                      <div>
+                        <h4 className="font-medium text-sm mb-2">LoRA Parameters</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label htmlFor="lora_rank" className="block text-xs font-medium mb-1">
+                              LoRA Rank
+                            </label>
+                            <input
+                              type="number"
+                              id="lora_rank"
+                              name="lora_rank"
+                              min="1"
+                              max="256"
+                              defaultValue="16"
+                              className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="lora_alpha" className="block text-xs font-medium mb-1">
+                              LoRA Alpha
+                            </label>
+                            <input
+                              type="number"
+                              id="lora_alpha"
+                              name="lora_alpha"
+                              min="1"
+                              defaultValue="32"
+                              className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="lora_dropout" className="block text-xs font-medium mb-1">
+                              LoRA Dropout
+                            </label>
+                            <input
+                              type="number"
+                              id="lora_dropout"
+                              name="lora_dropout"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              defaultValue="0.05"
+                              className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="target_modules" className="block text-xs font-medium mb-1">
+                              Target Modules
+                            </label>
+                            <input
+                              type="text"
+                              id="target_modules"
+                              name="target_modules"
+                              placeholder="q_proj,v_proj"
+                              className="w-full px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <div className="pt-4 flex justify-end space-x-3">
                   <button
                     type="button"
@@ -530,77 +666,12 @@ export default function FinetunesPage() {
         </div>
       )}
       
-      {/* Deployment Modal */}
-      {isDeployModalOpen && (
-        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-medium">Deploy Model</h3>
-                <button 
-                  onClick={() => setIsDeployModalOpen(false)}
-                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                >
-                  ✕
-                </button>
-              </div>
-              
-              <div className="mb-4">
-                <p className="text-gray-600 dark:text-gray-300">
-                  Select a deployment option for {selectedModelForDeploy?.name}:
-                </p>
-              </div>
-              
-              <div className="space-y-3">
-                <button
-                  onClick={() => deployTogetherAI()}
-                  disabled={deploymentLoading}
-                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-                >
-                  <div className="font-medium">Together AI</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy as LoRA to Together AI serverless</div>
-                </button>
-
-                <button
-                  onClick={() => deployRunPod()}
-                  disabled={deploymentLoading}
-                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-                >
-                  <div className="font-medium">RunPod Serverless</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod&apos;s serverless platform</div>
-                </button>
-                
-                <button
-                  onClick={() => deployHuggingFace()}
-                  disabled={deploymentLoading}
-                  className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-                >
-                  <div className="font-medium">Hugging Face Dedicated</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy to Hugging Face Inference API</div>
-                </button>
-              </div>
-              
-              {deploymentLoading && (
-                <div className="mt-4 text-center">
-                  <div className="inline-block animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Deploying model...</p>
-                </div>
-              )}
-              
-              <div className="pt-4 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setIsDeployModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
-                  disabled={deploymentLoading}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Replace the deployment modal with the new component */}
+      <DeploymentModal 
+        isOpen={isDeployModalOpen}
+        onClose={() => setIsDeployModalOpen(false)}
+        model={selectedModelForDeploy}
+      />
     </div>
   );
 } 

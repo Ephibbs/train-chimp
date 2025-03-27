@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getUserModels, getUserDatasets, getHFUsername } from '@/app/actions/hf';
 import { FineTuneHFModel, HFDataset } from '@/lib/types';
+import { getAllTogetherAIModels } from '@/app/actions/deployment';
 
 // Define interface for the context
 interface DataContextType {
@@ -26,6 +27,10 @@ const DataContext = createContext<DataContextType>({
   hfUsername: null,
 });
 
+interface ProcessedTogetherAIModel {
+  display_name: string;
+}
+
 // Hook to use the data context
 export const useData = () => useContext(DataContext);
 
@@ -36,6 +41,7 @@ interface DataProviderProps {
 export function DataProvider({ children }: DataProviderProps) {
   const [models, setModels] = useState<FineTuneHFModel[]>([]);
   const [datasets, setDatasets] = useState<HFDataset[]>([]);
+  const [togetherModels, setTogetherModels] = useState<ProcessedTogetherAIModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(true);
   const [hfUsername, setHFUsername] = useState<string | null>(null);
@@ -65,6 +71,37 @@ export function DataProvider({ children }: DataProviderProps) {
       setIsLoadingModels(false);
     }
   };
+
+  useEffect(() => {
+    // Check if any of the Together AI models match our fine-tuned models
+    // and mark them as deployed to Together AI
+    if (togetherModels && togetherModels.length > 0 && models && models.length > 0) {
+      // Create a map for O(1) lookups
+      const togetherModelMap = new Map(
+        togetherModels.map(model => [model.display_name, model.id])
+      );
+
+      const updatedModels = models.map(model => {
+        const togetherModelName = togetherModelMap.get(model.name);
+        console.log(model.name, togetherModelName);
+        if (togetherModelName) {
+          console.log(togetherModelName);
+          return {
+            ...model,
+            together_deployed: togetherModelName
+          };
+        }
+        return model;
+      });
+      
+      setModels(updatedModels);
+    }
+  }, [togetherModels, models.length]);
+
+  const fetchTogetherModels = async () => {
+    const data = await getAllTogetherAIModels();
+    setTogetherModels(data);
+  }
   
   // Function to fetch datasets
   const fetchDatasets = async (username: string | null) => {
@@ -87,6 +124,7 @@ export function DataProvider({ children }: DataProviderProps) {
     if (hfUsername) {
       fetchModels(hfUsername);
       fetchDatasets(hfUsername);
+      fetchTogetherModels();
     }
   }, [hfUsername]);
   

@@ -20,6 +20,7 @@ export interface FineTuneHFModel {
   downloads: number;
   likes: number;
   updatedAt: Date;
+  together_deployed: string | null;
 }
 
 // Interface definitions for HF data

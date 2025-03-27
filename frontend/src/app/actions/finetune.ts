@@ -4,7 +4,7 @@ import { createModelCard, createModelRepo, updateModelCard } from "./hf";
 import { getHFUsername } from "./hf";
 import { COLLECTION_NAME } from "@/lib/types";
 
-export async function startFinetune(name: string, baseModel: string, datasetId: string, epochs: number) {
+export async function startFinetune(name: string, baseModel: string, datasetId: string, epochs: number, advancedParams: any) {
     // Create repository name for the fine-tuned model
     const repoName = name
       .trim()
@@ -40,12 +40,7 @@ export async function startFinetune(name: string, baseModel: string, datasetId: 
           `queued_at:${new Date().toISOString()}`
         ],
         model_description: `Fine-tuned model: ${name}`,
-        trainParams: {
-          epochs: epochs,
-          learning_rate: 0.0001,
-          batch_size: 1,
-          max_length: 2048
-        }
+        trainParams: advancedParams
       };
     // Create model card with metadata
     await createModelCard({

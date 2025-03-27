@@ -6,6 +6,11 @@ export async function POST(request: Request) {
   try {
     const { hfToken, runpodToken, togetherAiToken } = await request.json();
     const envPath = path.join(process.cwd(), '.env.local');
+
+    console.log('hfToken', hfToken);
+    console.log('runpodToken', runpodToken);
+    console.log('togetherAiToken', togetherAiToken);
+    console.log('envPath', envPath);
     
     // Read existing .env.local file if it exists
     let envContent = '';

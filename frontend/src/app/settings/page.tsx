@@ -26,7 +26,35 @@ export default function SettingsPage() {
     setIsSaving(true);
     setSaveSuccess(false);
 
+        // Call the API to save settings
+    const response = await fetch('/api/save-settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        hfToken,
+        runpodToken,
+        togetherAiToken
+      }),
+    });
     
+    if (!response.ok) {
+      throw new Error('Failed to save settings');
+    }
+    
+    // Update environment variables in memory
+    if (typeof window !== 'undefined') {
+      (window as any).process = {
+        ...(window as any).process,
+        env: {
+          ...(window as any).process?.env,
+          NEXT_PUBLIC_HF_TOKEN: hfToken,
+          NEXT_PUBLIC_RUNPOD_API_KEY: runpodToken,
+          NEXT_PUBLIC_TOGETHER_API_KEY: togetherAiToken
+        }
+      };
+    }
     
     try { 
       setSaveSuccess(true);
