@@ -11,3 +11,4 @@ cloudflare>=4.1.0
 supabase>=2.14.0
 trl>=0.16.0
 tensorboardX
+unsloth>=0.1.0
