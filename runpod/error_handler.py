@@ -56,7 +56,7 @@ def update_model_status(model_id, status, error_message=None):
                 
             # Add timestamp
             if status == "failed":
-                card.data.tags.append(f"failed_at:{get_utc_time()}")
+                card.data.tags.append(f"completed_at:{get_utc_time()}")
             
             card.push_to_hub(model_id)
             logger.info(f"Successfully updated model status to {status}")

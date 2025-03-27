@@ -478,7 +478,7 @@ export default function FineTuneDetailsPage({ params }: FineTuneDetailsPageProps
                   className="w-full px-4 py-3 text-left bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
                 >
                   <div className="font-medium">RunPod Serverless</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod's serverless platform</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Deploy using RunPod&apos;s serverless platform</div>
                 </button>
                 
                 <button

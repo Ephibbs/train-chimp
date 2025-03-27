@@ -2,17 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getUserModels, getUserDatasets, getHFUsername } from '@/app/actions/hf';
-import { FineTuneHFModel } from '@/lib/types';
-
-// Define HFDataset type based on the existing code
-interface HFDataset {
-  id: string;
-  name: string;
-  author: string;
-  tags: string[];
-  downloads: number;
-  updatedAt: string;
-}
+import { FineTuneHFModel, HFDataset } from '@/lib/types';
 
 // Define interface for the context
 interface DataContextType {

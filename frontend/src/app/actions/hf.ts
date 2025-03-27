@@ -1,27 +1,8 @@
 'use server'
 
 import * as hub from '@huggingface/hub';
-import { FineTuneHFModel } from '@/lib/types';
+import { FineTuneHFModel, HFDataset } from '@/lib/types';
 
-// Interface definitions for HF data
-interface HFModel {
-  id: string;
-  modelId: string;
-  author: string;
-  tags: string[];
-  downloads: number;
-  likes: number;
-  lastModified: string;
-}
-
-interface HFDataset {
-  id: string;
-  name: string;
-  author: string;
-  tags: string[];
-  downloads: number;
-  updatedAt: Date;
-}
 
 // Parameter interfaces for functions
 interface GetHFUsernameParams {

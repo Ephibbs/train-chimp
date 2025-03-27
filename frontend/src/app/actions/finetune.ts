@@ -1,6 +1,6 @@
 import { startGpuInstance } from "@/lib/runpod/startup";
 import { calculateRequiredGpuMemory } from "@/lib/utils";
-import { createModelCard, createModelRepo, getModelCard, updateModelCard } from "./hf";
+import { createModelCard, createModelRepo, updateModelCard } from "./hf";
 import { getHFUsername } from "./hf";
 import { COLLECTION_NAME } from "@/lib/types";
 

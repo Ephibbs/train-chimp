@@ -21,3 +21,23 @@ export interface FineTuneHFModel {
   likes: number;
   updatedAt: Date;
 }
+
+// Interface definitions for HF data
+export interface HFModel {
+  id: string;
+  modelId: string;
+  author: string;
+  tags: string[];
+  downloads: number;
+  likes: number;
+  lastModified: string;
+}
+
+export interface HFDataset {
+  id: string;
+  name: string;
+  author: string;
+  tags: string[];
+  downloads: number;
+  updatedAt: Date;
+}
